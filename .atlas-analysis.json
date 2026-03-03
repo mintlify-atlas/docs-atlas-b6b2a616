@@ -1,0 +1,169 @@
+{
+  "projectType": "infrastructure",
+  "projectName": "Chronoverse",
+  "projectDescription": "Distributed job scheduler and orchestration system for reliable, scalable workflow execution on your infrastructure",
+  "theme": "aspen",
+  "primaryColor": "#7C3AED",
+  "lightColor": "#A78BFA",
+  "darkColor": "#5B21B6",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "installation"
+            ]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "concepts/architecture",
+              "concepts/workflows",
+              "concepts/jobs",
+              "concepts/workers"
+            ]
+          },
+          {
+            "group": "Deployment",
+            "pages": [
+              "deployment/overview",
+              "deployment/development",
+              "deployment/production",
+              "deployment/configuration"
+            ]
+          },
+          {
+            "group": "Features",
+            "pages": [
+              "features/workflow-types",
+              "features/job-scheduling",
+              "features/log-streaming",
+              "features/notifications",
+              "features/analytics"
+            ]
+          },
+          {
+            "group": "Operations",
+            "pages": [
+              "operations/monitoring",
+              "operations/observability",
+              "operations/security",
+              "operations/scaling"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "REST API",
+            "pages": [
+              "api/overview",
+              "api/authentication"
+            ]
+          },
+          {
+            "group": "Workflows",
+            "pages": [
+              "api/workflows/create",
+              "api/workflows/update",
+              "api/workflows/get",
+              "api/workflows/list",
+              "api/workflows/terminate",
+              "api/workflows/delete"
+            ]
+          },
+          {
+            "group": "Jobs",
+            "pages": [
+              "api/jobs/schedule",
+              "api/jobs/get",
+              "api/jobs/list",
+              "api/jobs/logs",
+              "api/jobs/stream-logs",
+              "api/jobs/search-logs"
+            ]
+          },
+          {
+            "group": "Notifications",
+            "pages": [
+              "api/notifications/list",
+              "api/notifications/mark-read"
+            ]
+          },
+          {
+            "group": "Analytics",
+            "pages": [
+              "api/analytics/user",
+              "api/analytics/workflow"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "gRPC Services",
+        "groups": [
+          {
+            "group": "Overview",
+            "pages": [
+              "grpc/overview"
+            ]
+          },
+          {
+            "group": "Services",
+            "pages": [
+              "grpc/users-service",
+              "grpc/workflows-service",
+              "grpc/jobs-service",
+              "grpc/notifications-service",
+              "grpc/analytics-service"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Distributed job scheduling with precise time intervals",
+    "Multiple workflow types (HEARTBEAT, CONTAINER)",
+    "Real-time log streaming via Server-Sent Events",
+    "Comprehensive observability with OpenTelemetry integration",
+    "Message-driven microservices architecture using Kafka and gRPC",
+    "Secure JWT-based authentication and authorization",
+    "High-volume log storage with ClickHouse",
+    "Dashboard-based real-time notifications",
+    "Analytics for workflow and job performance",
+    "Horizontal scaling with fault-tolerant workers"
+  ],
+  "publicApiSurface": [
+    "POST /auth/register",
+    "POST /auth/login",
+    "POST /auth/logout",
+    "POST /auth/validate",
+    "GET /users",
+    "PUT /users",
+    "POST /workflows",
+    "GET /workflows",
+    "GET /workflows/{workflow_id}",
+    "PUT /workflows/{workflow_id}",
+    "PATCH /workflows/{workflow_id}",
+    "DELETE /workflows/{workflow_id}",
+    "POST /workflows/{workflow_id}/jobs/schedule",
+    "GET /workflows/{workflow_id}/jobs",
+    "GET /workflows/{workflow_id}/jobs/{job_id}",
+    "GET /workflows/{workflow_id}/jobs/{job_id}/logs",
+    "GET /workflows/{workflow_id}/jobs/{job_id}/logs/search",
+    "GET /workflows/{workflow_id}/jobs/{job_id}/logs/raw",
+    "GET /workflows/{workflow_id}/jobs/{job_id}/events",
+    "GET /notifications",
+    "PUT /notifications",
+    "GET /analytics",
+    "GET /analytics/{workflow_id}"
+  ]
+}
