@@ -81,6 +81,13 @@
             ]
           },
           {
+            "group": "Users",
+            "pages": [
+              "api/users/get",
+              "api/users/update"
+            ]
+          },
+          {
             "group": "Workflows",
             "pages": [
               "api/workflows/create",
@@ -99,7 +106,8 @@
               "api/jobs/list",
               "api/jobs/logs",
               "api/jobs/stream-logs",
-              "api/jobs/search-logs"
+              "api/jobs/search-logs",
+              "api/jobs/download-logs"
             ]
           },
           {

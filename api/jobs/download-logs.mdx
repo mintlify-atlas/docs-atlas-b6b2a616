@@ -1,0 +1,162 @@
+---
+title: Download Job Logs
+api: GET /workflows/{workflow_id}/jobs/{job_id}/logs/raw
+description: Download all job logs as a plain text file
+---
+
+## Overview
+
+Download all logs for a completed or failed job as a single plain text file. This endpoint streams the entire log history in chronological order, making it suitable for archival or external log analysis.
+
+<Note>
+  This endpoint is only available for jobs with status `COMPLETED` or `FAILED`. Logs for running jobs must be accessed via the streaming endpoint.
+</Note>
+
+## Authentication
+
+Requires a valid session cookie.
+
+## Path Parameters
+
+<ParamField path="workflow_id" type="string" required>
+  ID of the workflow that owns the job
+</ParamField>
+
+<ParamField path="job_id" type="string" required>
+  ID of the job whose logs to download
+</ParamField>
+
+## Request
+
+```bash
+curl -X GET "http://localhost:8080/workflows/{workflow_id}/jobs/{job_id}/logs/raw" \
+  -H "Cookie: session=<session_cookie>" \
+  --output job-logs.txt
+```
+
+## Response
+
+### Headers
+
+- `Content-Type: text/plain`
+- `Content-Disposition: attachment; filename="{job_id}-logs.txt"`
+
+### Body
+
+Plain text stream containing all log messages, one per line, in chronological order:
+
+```
+Starting job execution...
+Connecting to database
+Processing records: batch 1/10
+Processing records: batch 2/10
+...
+Job completed successfully
+```
+
+## Behavior
+
+### Streaming
+
+Logs are streamed in chunks using HTTP response flushing, so the download begins immediately even for large log files:
+
+1. Fetch logs in paginated batches from storage
+2. Write each batch to the response stream
+3. Flush the response to send data to client
+4. Continue until all logs are transferred
+
+### Error Handling
+
+If an error occurs during log retrieval, an error message is appended to the file:
+
+```
+--- ERROR: failed to fetch logs ---
+context deadline exceeded
+```
+
+## Error Responses
+
+| Status Code | Description |
+|-------------|-------------|
+| 400 | Job is not yet completed (status must be COMPLETED or FAILED) |
+| 401 | Invalid or expired session |
+| 404 | Workflow or job not found |
+| 500 | Streaming not supported or internal error |
+
+## Usage Examples
+
+### Download with curl
+
+```bash
+# Download logs to a file
+curl -X GET "http://localhost:8080/workflows/01JGXYZ.../jobs/01JGABC.../logs/raw" \
+  -H "Cookie: session=<session_cookie>" \
+  -o "job-01JGABC-logs.txt"
+```
+
+### JavaScript/TypeScript
+
+```javascript
+const workflowId = '01JGXYZ...';
+const jobId = '01JGABC...';
+
+const response = await fetch(
+  `http://localhost:8080/workflows/${workflowId}/jobs/${jobId}/logs/raw`,
+  {
+    credentials: 'include'
+  }
+);
+
+if (response.ok) {
+  const logs = await response.text();
+  
+  // Save to file or process
+  const blob = new Blob([logs], { type: 'text/plain' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `job-${jobId}-logs.txt`;
+  a.click();
+}
+```
+
+### Python
+
+```python
+import requests
+
+workflow_id = '01JGXYZ...'
+job_id = '01JGABC...'
+
+with requests.Session() as session:
+    # Set session cookie
+    session.cookies.set('session', '<session_cookie>')
+    
+    # Download logs
+    response = session.get(
+        f'http://localhost:8080/workflows/{workflow_id}/jobs/{job_id}/logs/raw',
+        stream=True
+    )
+    
+    # Save to file
+    with open(f'job-{job_id}-logs.txt', 'wb') as f:
+        for chunk in response.iter_content(chunk_size=8192):
+            f.write(chunk)
+```
+
+## Comparison with Other Log Endpoints
+
+| Endpoint | Use Case | Format | Real-time |
+|----------|----------|--------|----------|
+| `GET /logs` | Paginated access | JSON | No |
+| `GET /logs/search` | Filtered search | JSON | No |
+| `GET /events` | Real-time streaming | SSE | Yes |
+| `GET /logs/raw` | Full download | Plain text | No |
+
+<Tip>
+  Use this endpoint for:
+  - Archiving job logs for compliance
+  - Importing logs into external analysis tools
+  - Creating backups of execution history
+  - Sharing logs with team members
+</Tip>

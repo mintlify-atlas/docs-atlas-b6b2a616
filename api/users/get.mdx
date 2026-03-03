@@ -1,0 +1,72 @@
+---
+title: Get User
+api: GET /users
+description: Retrieve the authenticated user's profile information
+---
+
+## Overview
+
+Retrieve the currently authenticated user's profile, including their email and notification preferences.
+
+## Authentication
+
+This endpoint requires:
+- Valid session cookie
+- CSRF token (not required for GET requests)
+
+The user ID is automatically extracted from the session.
+
+## Request
+
+```bash
+curl -X GET http://localhost:8080/users \
+  -H "Cookie: session=<session_cookie>"
+```
+
+## Response
+
+<ResponseField name="id" type="string" required>
+  Unique identifier for the user
+</ResponseField>
+
+<ResponseField name="email" type="string" required>
+  User's email address
+</ResponseField>
+
+<ResponseField name="notification_preference" type="string" required>
+  User's notification preference setting
+  
+  Options:
+  - `ALL` - Receive all notifications
+  - `FAILURES_ONLY` - Only receive failure notifications
+  - `NONE` - No notifications
+</ResponseField>
+
+<ResponseField name="created_at" type="string" required>
+  Timestamp when the user account was created (RFC3339 format)
+</ResponseField>
+
+<ResponseField name="updated_at" type="string" required>
+  Timestamp when the user account was last updated (RFC3339 format)
+</ResponseField>
+
+### Example Response
+
+```json
+{
+  "id": "01JGXYZ1234567890ABCDEF",
+  "email": "user@example.com",
+  "notification_preference": "FAILURES_ONLY",
+  "created_at": "2024-01-15T10:30:00Z",
+  "updated_at": "2024-03-01T14:22:00Z"
+}
+```
+
+## Error Responses
+
+| Status Code | Description |
+|-------------|-------------|
+| 400 | User ID not found in session |
+| 401 | Invalid or expired session |
+| 404 | User not found |
+| 500 | Internal server error |

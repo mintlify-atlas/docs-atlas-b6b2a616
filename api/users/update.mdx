@@ -1,0 +1,68 @@
+---
+title: Update User
+api: PUT /users
+description: Update the authenticated user's notification preferences
+---
+
+## Overview
+
+Update the currently authenticated user's notification preferences. This endpoint allows users to control when they receive notifications about workflow and job events.
+
+## Authentication
+
+This endpoint requires:
+- Valid session cookie
+- CSRF token in the `X-CSRF-Token` header
+
+The user ID is automatically extracted from the session.
+
+## Request
+
+<ParamField body="notification_preference" type="string" required>
+  New notification preference setting
+  
+  Options:
+  - `ALL` - Receive all notifications (workflow failures, job completions, etc.)
+  - `FAILURES_ONLY` - Only receive notifications about failures
+  - `NONE` - Disable all notifications
+</ParamField>
+
+<ParamField body="password" type="string">
+  New password (optional, not currently implemented)
+</ParamField>
+
+### Example Request
+
+```bash
+curl -X PUT http://localhost:8080/users \
+  -H "Content-Type: application/json" \
+  -H "Cookie: session=<session_cookie>; csrf=<csrf_token>" \
+  -H "X-CSRF-Token: <csrf_token>" \
+  -d '{
+    "notification_preference": "FAILURES_ONLY"
+  }'
+```
+
+## Response
+
+Returns `204 No Content` on success.
+
+## Error Responses
+
+| Status Code | Description |
+|-------------|-------------|
+| 400 | Invalid request body or user ID not found |
+| 401 | Invalid or expired session |
+| 403 | Invalid CSRF token |
+| 404 | User not found |
+| 500 | Internal server error |
+
+## Usage Notes
+
+<Info>
+  Notification preferences are applied immediately and affect all future notifications for workflows and jobs owned by the user.
+</Info>
+
+<Note>
+  The `password` field is included in the request structure but password changes are not currently implemented. Only `notification_preference` updates are supported.
+</Note>
