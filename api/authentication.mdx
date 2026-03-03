@@ -1,0 +1,345 @@
+---
+title: 'Authentication'
+description: 'Learn how to authenticate with the Chronoverse API using session-based authentication with JWT tokens'
+---
+
+## Overview
+
+Chronoverse uses a hybrid authentication approach combining:
+
+- **JWT tokens** (short-lived, 15 minutes) for authorization
+- **Session cookies** (long-lived) for maintaining user sessions
+- **CSRF tokens** for protecting state-changing operations
+
+<Note>
+  All authenticated endpoints require both a valid session cookie and CSRF token for state-changing operations (POST, PUT, PATCH, DELETE).
+</Note>
+
+## JWT Token Details
+
+JSON Web Tokens (JWT) are used for secure authorization between services.
+
+### Token Structure
+
+Tokens are signed using the EdDSA algorithm with Ed25519 keys and contain the following claims:
+
+<ResponseField name="aud" type="string" required>
+  Audience - The service name (chronoverse)
+</ResponseField>
+
+<ResponseField name="iss" type="string" required>
+  Issuer - The service that issued the token
+</ResponseField>
+
+<ResponseField name="sub" type="string" required>
+  Subject - The user ID
+</ResponseField>
+
+<ResponseField name="role" type="string" required>
+  User role - Either `user` or `admin`
+</ResponseField>
+
+<ResponseField name="iat" type="integer" required>
+  Issued at - Unix timestamp when token was created
+</ResponseField>
+
+<ResponseField name="nbf" type="integer" required>
+  Not before - Unix timestamp when token becomes valid
+</ResponseField>
+
+<ResponseField name="exp" type="integer" required>
+  Expiration - Unix timestamp when token expires (15 minutes from issuance)
+</ResponseField>
+
+### Token Expiry
+
+JWT tokens expire after **15 minutes** for security. However, the session remains valid longer, and tokens are automatically reissued on subsequent requests.
+
+<Warning>
+  Tokens are short-lived by design. The server automatically handles token renewal as long as your session is valid.
+</Warning>
+
+## Authentication Flow
+
+### 1. Register a New User
+
+Create a new user account:
+
+```bash
+curl -X POST http://localhost:8080/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "user@example.com",
+    "password": "your-secure-password"
+  }'
+```
+
+**Request Body:**
+
+<ParamField body="email" type="string" required>
+  User's email address
+</ParamField>
+
+<ParamField body="password" type="string" required>
+  User's password
+</ParamField>
+
+**Response:**
+
+- Status: `201 Created`
+- Sets two HTTP-only cookies:
+  - `session` - Encrypted session token
+  - `csrf` - CSRF protection token
+
+### 2. Login
+
+Authenticate an existing user:
+
+```bash
+curl -X POST http://localhost:8080/auth/login \
+  -H "Content-Type: application/json" \
+  -c cookies.txt \
+  -d '{
+    "email": "user@example.com",
+    "password": "your-secure-password"
+  }'
+```
+
+**Request Body:**
+
+<ParamField body="email" type="string" required>
+  User's email address
+</ParamField>
+
+<ParamField body="password" type="string" required>
+  User's password
+</ParamField>
+
+**Response:**
+
+- Status: `201 Created`
+- Sets two HTTP-only cookies:
+  - `session` - Encrypted session token containing the JWT
+  - `csrf` - CSRF protection token
+
+<Info>
+  Save the cookies using `-c cookies.txt` to use them in subsequent requests.
+</Info>
+
+### 3. Using Authenticated Endpoints
+
+For GET requests (read-only operations):
+
+```bash
+curl -X GET http://localhost:8080/users \
+  -b cookies.txt
+```
+
+For state-changing operations (POST, PUT, PATCH, DELETE):
+
+```bash
+curl -X POST http://localhost:8080/workflows \
+  -b cookies.txt \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "My Workflow",
+    "payload": "...",
+    "kind": "CONTAINER",
+    "interval": 3600
+  }'
+```
+
+<Warning>
+  Both the `session` and `csrf` cookies must be included for state-changing operations. Read-only operations only require the `session` cookie.
+</Warning>
+
+### 4. Validate Session
+
+Check if your current session is valid:
+
+```bash
+curl -X POST http://localhost:8080/auth/validate \
+  -b cookies.txt
+```
+
+**Response:**
+
+- Status: `200 OK` - Session is valid
+- Status: `401 Unauthorized` - Session is invalid or expired
+
+### 5. Logout
+
+End your session and clear cookies:
+
+```bash
+curl -X POST http://localhost:8080/auth/logout \
+  -b cookies.txt
+```
+
+**Response:**
+
+- Status: `204 No Content`
+- Clears both `session` and `csrf` cookies
+- Deletes the session from the server
+
+## Cookie Details
+
+### Session Cookie
+
+The `session` cookie contains an encrypted JWT token:
+
+- **Name:** `session`
+- **HttpOnly:** `true` (not accessible via JavaScript)
+- **Secure:** Depends on deployment (true for HTTPS)
+- **SameSite:** Configurable (LAX, STRICT, or NONE)
+- **Path:** `/`
+- **Expiry:** Configured session expiry duration
+
+### CSRF Cookie
+
+The `csrf` cookie provides CSRF protection:
+
+- **Name:** `csrf`
+- **HttpOnly:** `true`
+- **Secure:** Depends on deployment
+- **SameSite:** Configurable
+- **Path:** `/`
+- **Expiry:** Configured CSRF expiry duration
+
+<Note>
+  The CSRF token is automatically validated by the server for all state-changing operations.
+</Note>
+
+## Security Best Practices
+
+<AccordionGroup>
+  <Accordion title="Use HTTPS in Production">
+    Always use HTTPS in production to protect session cookies and tokens from interception.
+  </Accordion>
+
+  <Accordion title="Secure Cookie Storage">
+    Session and CSRF tokens are stored as HTTP-only cookies, making them inaccessible to JavaScript and protecting against XSS attacks.
+  </Accordion>
+
+  <Accordion title="Token Auto-Renewal">
+    JWT tokens are automatically reissued on each request, so you don't need to manually handle token refresh as long as your session is valid.
+  </Accordion>
+
+  <Accordion title="Session Expiry">
+    Sessions expire after a configured duration of inactivity. Implement proper logout functionality in your application.
+  </Accordion>
+
+  <Accordion title="CSRF Protection">
+    All state-changing operations require a valid CSRF token, protecting against cross-site request forgery attacks.
+  </Accordion>
+</AccordionGroup>
+
+## Error Responses
+
+### Authentication Errors
+
+<ResponseField name="401 Unauthorized">
+  - `session not found` - No session cookie provided
+  - `invalid token` - JWT token is invalid or malformed
+  - `failed to decrypt session` - Session cookie is corrupted
+  - `invalid auth token` - Session not found in Redis store
+</ResponseField>
+
+<ResponseField name="400 Bad Request">
+  - `csrf token not found` - CSRF token missing for state-changing operations
+  - `invalid request body` - Request body is malformed
+</ResponseField>
+
+<ResponseField name="412 Precondition Failed">
+  - `failed to verify csrf token` - CSRF token validation failed
+</ResponseField>
+
+### Example Error Response
+
+```bash
+# Missing session cookie
+curl -X GET http://localhost:8080/users
+# Response: 401 Unauthorized
+# Body: session not found
+
+# Missing CSRF token for state-changing operation
+curl -X POST http://localhost:8080/workflows \
+  -b "session=invalid-session" \
+  -H "Content-Type: application/json" \
+  -d '{...}'
+# Response: 400 Bad Request
+# Body: csrf token not found
+```
+
+## Programmatic Usage
+
+### JavaScript/TypeScript Example
+
+```javascript
+// Login and store cookies
+const response = await fetch('http://localhost:8080/auth/login', {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+  },
+  credentials: 'include', // Important: include cookies
+  body: JSON.stringify({
+    email: 'user@example.com',
+    password: 'your-password',
+  }),
+});
+
+if (response.status === 201) {
+  console.log('Login successful');
+  // Cookies are automatically stored by the browser
+}
+
+// Make authenticated request
+const userResponse = await fetch('http://localhost:8080/users', {
+  method: 'GET',
+  credentials: 'include', // Include cookies
+});
+
+const userData = await userResponse.json();
+```
+
+### Python Example
+
+```python
+import requests
+
+# Create a session to persist cookies
+session = requests.Session()
+
+# Login
+response = session.post(
+    'http://localhost:8080/auth/login',
+    json={
+        'email': 'user@example.com',
+        'password': 'your-password'
+    }
+)
+
+if response.status_code == 201:
+    print('Login successful')
+    # Cookies are automatically stored in the session
+
+# Make authenticated request
+user_response = session.get('http://localhost:8080/users')
+user_data = user_response.json()
+
+# Logout
+session.post('http://localhost:8080/auth/logout')
+```
+
+## Internal Service Authentication
+
+For internal service-to-service communication, the API supports admin role tokens:
+
+- Tokens with `role: admin` bypass certain authorization checks
+- Admin role is identified by checking the role claim in the JWT token
+- Use `IsInternalService(ctx)` to verify admin role from metadata
+
+<Warning>
+  Admin role tokens should only be used for internal service communication and never exposed to end users.
+</Warning>

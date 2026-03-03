@@ -1,0 +1,186 @@
+---
+title: 'Search Job Logs'
+api: 'GET /workflows/{workflow_id}/jobs/{job_id}/logs/search'
+description: 'Search and filter job logs by stream type and message content'
+---
+
+Search through job logs with filtering by stream type (stdout/stderr) and message content.
+
+<Info>
+Results are cached for 2 hours when pagination is complete (empty cursor returned).
+</Info>
+
+## Path Parameters
+
+<ParamField path="workflow_id" type="string" required>
+  The unique identifier of the workflow
+</ParamField>
+
+<ParamField path="job_id" type="string" required>
+  The unique identifier of the job
+</ParamField>
+
+## Query Parameters
+
+<ParamField query="cursor" type="string">
+  Pagination cursor from a previous response
+</ParamField>
+
+<ParamField query="stream" type="string">
+  Filter by stream type. Values: `STDOUT`, `STDERR`, `ALL` (default: `ALL`)
+</ParamField>
+
+<ParamField query="q" type="string">
+  Search query to filter log messages. Returns logs containing this substring.
+</ParamField>
+
+## Response
+
+<ResponseField name="id" type="string">
+  Job identifier
+</ResponseField>
+
+<ResponseField name="workflow_id" type="string">
+  Workflow identifier
+</ResponseField>
+
+<ResponseField name="logs" type="array">
+  Array of matching log entries
+  
+  <ResponseField name="timestamp" type="string">
+    ISO 8601 timestamp when the log was created
+  </ResponseField>
+  
+  <ResponseField name="message" type="string">
+    The log message content
+  </ResponseField>
+  
+  <ResponseField name="sequence_num" type="integer">
+    Sequence number for ordering logs
+  </ResponseField>
+  
+  <ResponseField name="stream" type="string">
+    Stream type: `stdout` or `stderr`
+  </ResponseField>
+</ResponseField>
+
+<ResponseField name="cursor" type="string">
+  Pagination cursor for next page. Empty string indicates no more results.
+</ResponseField>
+
+## Examples
+
+<CodeGroup>
+```bash cURL
+# Get only stderr logs
+curl -X GET 'https://api.chronoverse.dev/workflows/wf_abc123/jobs/job_xyz789/logs/search?stream=STDERR' \
+  -H 'Authorization: Bearer YOUR_API_TOKEN'
+
+# Search for specific message
+curl -X GET 'https://api.chronoverse.dev/workflows/wf_abc123/jobs/job_xyz789/logs/search?q=error' \
+  -H 'Authorization: Bearer YOUR_API_TOKEN'
+
+# Combine stream filter and search
+curl -X GET 'https://api.chronoverse.dev/workflows/wf_abc123/jobs/job_xyz789/logs/search?stream=STDERR&q=failed' \
+  -H 'Authorization: Bearer YOUR_API_TOKEN'
+
+# Get only stdout logs
+curl -X GET 'https://api.chronoverse.dev/workflows/wf_abc123/jobs/job_xyz789/logs/search?stream=STDOUT' \
+  -H 'Authorization: Bearer YOUR_API_TOKEN'
+```
+
+```javascript JavaScript
+// Search for error messages in stderr
+const searchLogs = async (workflowId, jobId, query, stream = 'ALL') => {
+  const url = new URL(
+    `https://api.chronoverse.dev/workflows/${workflowId}/jobs/${jobId}/logs/search`
+  );
+  
+  if (query) url.searchParams.set('q', query);
+  if (stream !== 'ALL') url.searchParams.set('stream', stream);
+  
+  const allLogs = [];
+  let cursor = '';
+  
+  do {
+    if (cursor) url.searchParams.set('cursor', cursor);
+    
+    const response = await fetch(url, {
+      headers: {
+        'Authorization': 'Bearer YOUR_API_TOKEN'
+      }
+    });
+    
+    const data = await response.json();
+    allLogs.push(...data.logs);
+    cursor = data.cursor;
+  } while (cursor);
+  
+  return allLogs;
+};
+
+// Find all error messages
+const errors = await searchLogs('wf_abc123', 'job_xyz789', 'error', 'STDERR');
+console.log(`Found ${errors.length} error messages`);
+
+errors.forEach(log => {
+  console.log(`[${log.timestamp}] ${log.message}`);
+});
+
+// Get all stdout logs
+const stdoutLogs = await searchLogs('wf_abc123', 'job_xyz789', '', 'STDOUT');
+console.log(`Found ${stdoutLogs.length} stdout entries`);
+```
+</CodeGroup>
+
+### Example Response
+
+```json
+{
+  "id": "job_xyz789",
+  "workflow_id": "wf_abc123",
+  "logs": [
+    {
+      "timestamp": "2026-03-03T10:00:07.789Z",
+      "message": "Warning: deprecated option used",
+      "sequence_num": 3,
+      "stream": "stderr"
+    },
+    {
+      "timestamp": "2026-03-03T10:05:12.345Z",
+      "message": "Error connecting to database",
+      "sequence_num": 234,
+      "stream": "stderr"
+    },
+    {
+      "timestamp": "2026-03-03T10:05:15.678Z",
+      "message": "Retrying connection attempt",
+      "sequence_num": 235,
+      "stream": "stderr"
+    }
+  ],
+  "cursor": ""
+}
+```
+
+## Stream Types
+
+<ResponseField name="STDOUT" type="string">
+  Standard output stream - normal informational messages
+</ResponseField>
+
+<ResponseField name="STDERR" type="string">
+  Standard error stream - error and warning messages
+</ResponseField>
+
+<ResponseField name="ALL" type="string">
+  Both stdout and stderr streams (default)
+</ResponseField>
+
+<Info>
+The search query (`q` parameter) performs a case-insensitive substring match on log messages.
+</Info>
+
+<Warning>
+For large result sets, make sure to paginate using the cursor to avoid timeouts.
+</Warning>

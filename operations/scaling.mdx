@@ -1,0 +1,468 @@
+---
+title: Scaling
+description: Horizontal scaling, worker replicas, resource limits, and performance tuning
+---
+
+## Overview
+
+Chronoverse is designed for horizontal scalability with multiple worker replicas, resource-based limits, and performance optimizations for production workloads.
+
+## Horizontal Scaling Architecture
+
+Chronoverse uses Docker Compose's `deploy.replicas` feature to run multiple instances of worker services:
+
+```
+┌─────────────────────┐
+│   Load Balancer     │
+│      (nginx)        │
+└──────────┬──────────┘
+           │
+     ┌─────┴─────┐
+     ▼           ▼
+  Server      Server
+     │           │
+     └─────┬─────┘
+           │
+     ┌─────┴─────────────────┐
+     ▼                       ▼
+┌──────────────┐      ┌──────────────┐
+│   Workers    │      │   Workers    │
+│  (Replica 1) │      │  (Replica 2) │
+└──────────────┘      └──────────────┘
+```
+
+## Worker Replicas
+
+### Low-Resource Workers
+
+Used for lightweight background tasks:
+
+```yaml
+low-resources-workers-limit: &low-resources-workers-limit
+  deploy:
+    replicas: 2
+    resources:
+      limits:
+        cpus: "0.5"    # 500m CPU
+        memory: 2G     # 2 GB
+      reservations:
+        cpus: "0.25"   # 250m CPU
+        memory: 1G     # 1 GB
+```
+
+Applied to:
+- **scheduling-worker**: Workflow scheduling and orchestration
+- **workflow-worker**: Workflow execution coordination
+- **joblogs-processor**: Log processing and indexing
+- **analytics-processor**: Analytics data aggregation
+
+### High-Resource Workers
+
+Used for compute-intensive job execution:
+
+```yaml
+high-resources-workers-limit: &high-resources-workers-limit
+  deploy:
+    replicas: 2
+    resources:
+      limits:
+        cpus: "2"      # 2 CPU
+        memory: 4G     # 4 GB
+      reservations:
+        cpus: "1"      # 1 CPU
+        memory: 2G     # 2 GB
+```
+
+Applied to:
+- **execution-worker**: Docker container job execution
+
+Source: `compose.prod.yaml:28`
+
+## Resource Limits
+
+### Service Resource Allocation
+
+Services have conservative resource limits:
+
+```yaml
+services-limit: &services-limit
+  deploy:
+    resources:
+      limits:
+        cpus: "0.25"   # 250m CPU
+        memory: 256M   # 256 MB
+      reservations:
+        cpus: "0.1"    # 100m CPU
+        memory: 128M   # 128 MB
+```
+
+Applied to:
+- users-service
+- workflows-service
+- jobs-service
+- notifications-service
+- analytics-service
+- server
+- docker-proxy
+
+Source: `compose.prod.yaml:16`
+
+### Database Resource Allocation
+
+Databases receive higher resource allocation:
+
+```yaml
+database-limits: &database-limits
+  deploy:
+    resources:
+      limits:
+        cpus: "1"      # 1 CPU
+        memory: 1G     # 1 GB
+      reservations:
+        cpus: "0.5"    # 500m CPU
+        memory: 512M   # 512 MB
+```
+
+Applied to:
+- PostgreSQL
+- ClickHouse
+- Redis
+- Kafka
+
+Source: `compose.prod.yaml:5`
+
+## Connection Pooling
+
+### PostgreSQL Connection Pool
+
+Optimized for multiple service connections:
+
+```go
+type Postgres struct {
+    Host        string        `envconfig:"POSTGRES_HOST" default:"localhost"`
+    Port        int           `envconfig:"POSTGRES_PORT" default:"5432"`
+    User        string        `envconfig:"POSTGRES_USER" default:"postgres"`
+    Password    string        `envconfig:"POSTGRES_PASSWORD" default:"postgres"`
+    Database    string        `envconfig:"POSTGRES_DB" default:"chronoverse"`
+    MaxConns    int32         `envconfig:"POSTGRES_MAX_CONNS" default:"10"`
+    MinConns    int32         `envconfig:"POSTGRES_MIN_CONNS" default:"5"`
+    MaxConnLife time.Duration `envconfig:"POSTGRES_MAX_CONN_LIFE" default:"1h"`
+    MaxConnIdle time.Duration `envconfig:"POSTGRES_MAX_CONN_IDLE" default:"30m"`
+    DialTimeout time.Duration `envconfig:"POSTGRES_DIAL_TIMEOUT" default:"5s"`
+}
+```
+
+Source: `internal/config/config.go:24`
+
+**Production Recommendations:**
+- `POSTGRES_MAX_CONNS`: 20-50 per service
+- `POSTGRES_MIN_CONNS`: 5-10 per service
+- `POSTGRES_MAX_CONN_LIFE`: 1h
+- `POSTGRES_MAX_CONN_IDLE`: 30m
+
+### ClickHouse Connection Pool
+
+Configured for analytics workloads:
+
+```go
+type ClickHouse struct {
+    Hosts           []string      `envconfig:"CLICKHOUSE_HOSTS" default:"localhost:9000"`
+    Database        string        `envconfig:"CLICKHOUSE_DATABASE" default:"default"`
+    Username        string        `envconfig:"CLICKHOUSE_USERNAME" default:"default"`
+    Password        string        `envconfig:"CLICKHOUSE_PASSWORD" default:""`
+    MaxOpenConns    int           `envconfig:"CLICKHOUSE_MAX_OPEN_CONNS" default:"10"`
+    MaxIdleConns    int           `envconfig:"CLICKHOUSE_MAX_IDLE_CONNS" default:"5"`
+    ConnMaxLifetime time.Duration `envconfig:"CLICKHOUSE_CONN_MAX_LIFETIME" default:"1h"`
+    DialTimeout     time.Duration `envconfig:"CLICKHOUSE_DIAL_TIMEOUT" default:"5s"`
+}
+```
+
+Source: `internal/config/config.go:44`
+
+### Redis Connection Pool
+
+Optimized for caching and session storage:
+
+```go
+type Redis struct {
+    Host                     string        `envconfig:"REDIS_HOST" default:"localhost"`
+    Port                     int           `envconfig:"REDIS_PORT" default:"6379"`
+    Password                 string        `envconfig:"REDIS_PASSWORD" default:""`
+    DB                       int           `envconfig:"REDIS_DB" default:"0"`
+    PoolSize                 int           `envconfig:"REDIS_POOL_SIZE" default:"10"`
+    MinIdleConns             int           `envconfig:"REDIS_MIN_IDLE_CONNS" default:"5"`
+    ReadTimeout              time.Duration `envconfig:"REDIS_READ_TIMEOUT" default:"5s"`
+    WriteTimeout             time.Duration `envconfig:"REDIS_WRITE_TIMEOUT" default:"5s"`
+    MaxMemory                string        `envconfig:"REDIS_MAX_MEMORY" default:"100mb"`
+    EvictionPolicy           string        `envconfig:"REDIS_EVICTION_POLICY" default:"allkeys-lru"`
+    EvictionPolicySampleSize int           `envconfig:"REDIS_EVICTION_POLICY_SAMPLE_SIZE" default:"5"`
+}
+```
+
+Source: `internal/config/config.go:62`
+
+**Production Recommendations:**
+- `REDIS_POOL_SIZE`: 20-50 per service
+- `REDIS_MIN_IDLE_CONNS`: 10-20 per service
+- `REDIS_MAX_MEMORY`: Based on available memory (e.g., 4gb)
+- `REDIS_EVICTION_POLICY`: `allkeys-lru` for cache workloads
+
+## Kafka Scaling
+
+### Consumer Groups
+
+Workers use consumer groups for load distribution:
+
+```yaml
+workflow-worker:
+  environment:
+    KAFKA_BROKERS: kafka:9094
+    KAFKA_CONSUMER_GROUP: workflow-worker
+    # Multiple replicas share the same consumer group
+  deploy:
+    replicas: 2
+```
+
+Consumer groups:
+- `workflow-worker`: Workflow execution tasks
+- `execution-worker`: Job execution tasks
+- `joblogs-processor`: Log processing tasks
+- `analytics-processor`: Analytics aggregation tasks
+
+### Partition Strategy
+
+Scale Kafka by increasing partition count:
+
+```bash
+# Create topic with multiple partitions
+kafka-topics --create \
+  --topic workflow-events \
+  --partitions 10 \
+  --replication-factor 1
+```
+
+<Info>
+Partition count should match or exceed the number of consumer replicas for optimal parallelism.
+</Info>
+
+## Performance Tuning
+
+### HTTP Server Configuration
+
+Optimized for production workloads:
+
+```go
+type Config struct {
+    Host              string
+    Port              int
+    RequestTimeout    time.Duration
+    ReadTimeout       time.Duration
+    ReadHeaderTimeout time.Duration
+    WriteTimeout      time.Duration
+    IdleTimeout       time.Duration
+    ValidationConfig  *ValidationConfig
+    HostURL           string
+    AllowedOrigins    []string
+    SameSiteMode      string
+}
+```
+
+Source: `internal/server/server.go:65`
+
+**Recommended Values:**
+- `ReadTimeout`: 30s
+- `ReadHeaderTimeout`: 10s
+- `WriteTimeout`: 60s
+- `IdleTimeout`: 120s
+
+### gRPC Request Timeout
+
+```go
+type Grpc struct {
+    Host           string        `envconfig:"GRPC_HOST" default:"localhost"`
+    Port           int           `envconfig:"GRPC_PORT" required:"true"`
+    RequestTimeout time.Duration `envconfig:"GRPC_REQUEST_TIMEOUT" default:"500ms"`
+}
+```
+
+Source: `internal/config/config.go:95`
+
+**Production Recommendation:**
+- `GRPC_REQUEST_TIMEOUT`: 2s-5s for most operations
+
+### Compression
+
+HTTP responses use gzip compression:
+
+```go
+srv.httpServer.Handler = srv.withOtelMiddleware(
+    srv.withCORSMiddleware(
+        srv.withCompressionMiddleware(router),
+    ),
+)
+```
+
+Source: `internal/server/server.go:144`
+
+## Scaling Strategies
+
+<Steps>
+  <Step title="Scale Worker Replicas">
+    Increase replicas based on workload:
+    ```yaml
+    execution-worker:
+      deploy:
+        replicas: 5  # Increase from 2 to 5
+    ```
+  </Step>
+
+  <Step title="Increase Resource Limits">
+    Adjust CPU and memory based on metrics:
+    ```yaml
+    high-resources-workers-limit:
+      deploy:
+        resources:
+          limits:
+            cpus: "4"      # Increase from 2 to 4
+            memory: 8G     # Increase from 4G to 8G
+    ```
+  </Step>
+
+  <Step title="Scale Database Connections">
+    Increase connection pools:
+    ```bash
+    POSTGRES_MAX_CONNS=50
+    REDIS_POOL_SIZE=50
+    CLICKHOUSE_MAX_OPEN_CONNS=20
+    ```
+  </Step>
+
+  <Step title="Add Kafka Partitions">
+    Increase topic partitions for parallelism:
+    ```bash
+    kafka-topics --alter \
+      --topic workflow-events \
+      --partitions 20
+    ```
+  </Step>
+
+  <Step title="Scale Database Instances">
+    For very high loads, run multiple database instances with read replicas:
+    ```yaml
+    postgres-replica:
+      image: postgres:18.0-alpine3.22
+      environment:
+        POSTGRES_MASTER_HOST: postgres
+        # Configure as read replica
+    ```
+  </Step>
+</Steps>
+
+## Load Balancing
+
+Nginx handles load balancing for the HTTP server:
+
+```nginx
+http {
+    server {
+        listen 80;
+
+        location /api/ {
+            proxy_pass http://server:8080/;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+
+            # Standard proxy settings with buffering enabled
+            proxy_buffering on;
+            proxy_cache off;
+
+            # Standard API timeouts
+            proxy_read_timeout 60s;
+            proxy_send_timeout 60s;
+            proxy_connect_timeout 10s;
+        }
+    }
+}
+```
+
+Source: `compose.prod.yaml:1343`
+
+## Monitoring Scaling Metrics
+
+### Key Metrics to Monitor
+
+**CPU Utilization:**
+```promql
+rate(container_cpu_usage_seconds_total{container="execution-worker"}[5m])
+```
+
+**Memory Usage:**
+```promql
+container_memory_usage_bytes{container="execution-worker"}
+```
+
+**Connection Pool Saturation:**
+```promql
+rate(postgres_connections_active[5m]) / postgres_connections_max
+```
+
+**Kafka Consumer Lag:**
+```promql
+kafka_consumer_lag{group="workflow-worker"}
+```
+
+### Scaling Triggers
+
+<Accordion title="When to scale up">
+  **Scale Worker Replicas When:**
+  - CPU utilization > 70% sustained
+  - Kafka consumer lag > 1000 messages
+  - Job queue depth > 100
+
+  **Scale Database Resources When:**
+  - Connection pool saturation > 80%
+  - Query latency p99 > 100ms
+  - Disk I/O wait > 20%
+
+  **Scale Redis When:**
+  - Memory usage > 80%
+  - Evictions > 100/sec
+  - Connection pool saturation > 80%
+</Accordion>
+
+## Auto-Scaling (Kubernetes)
+
+For Kubernetes deployments, use Horizontal Pod Autoscaler:
+
+```yaml
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: execution-worker-hpa
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: execution-worker
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
+```
+
+<Warning>
+Test scaling configurations in staging before applying to production. Monitor for resource contention and database connection exhaustion.
+</Warning>

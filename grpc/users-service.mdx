@@ -1,0 +1,262 @@
+---
+title: 'Users Service'
+description: 'User authentication and profile management gRPC service'
+---
+
+## Overview
+
+The Users Service handles user registration, authentication, and profile management.
+
+**Service Details:**
+- **Package**: `users`
+- **Port**: `50051`
+- **Proto**: `proto/users/users.proto`
+
+## Service Definition
+
+```proto
+service UsersService {
+    rpc RegisterUser(RegisterUserRequest) returns (RegisterUserResponse) {}
+    rpc LoginUser(LoginUserRequest) returns (LoginUserResponse) {}
+    rpc GetUser(GetUserRequest) returns (GetUserResponse) {}
+    rpc UpdateUser(UpdateUserRequest) returns (UpdateUserResponse) {}
+}
+```
+
+## RPC Methods
+
+### RegisterUser
+
+Register a new user account.
+
+**Request:**
+
+<ParamField path="email" type="string" required>
+  User's email address
+</ParamField>
+
+<ParamField path="password" type="string" required>
+  User's password (will be hashed)
+</ParamField>
+
+**Response:**
+
+<ResponseField name="user_id" type="string">
+  Unique identifier of the newly registered user
+</ResponseField>
+
+**Example:**
+
+```go
+req := &users.RegisterUserRequest{
+    Email:    "user@example.com",
+    Password: "securepassword",
+}
+
+resp, err := client.RegisterUser(ctx, req)
+if err != nil {
+    log.Fatal(err)
+}
+
+fmt.Printf("User registered with ID: %s\n", resp.UserId)
+```
+
+```bash
+# Using grpcurl
+grpcurl -plaintext -d '{
+  "email": "user@example.com",
+  "password": "securepassword"
+}' localhost:50051 users.UsersService/RegisterUser
+```
+
+---
+
+### LoginUser
+
+Authenticate a user with email and password.
+
+**Request:**
+
+<ParamField path="email" type="string" required>
+  User's email address
+</ParamField>
+
+<ParamField path="password" type="string" required>
+  User's password
+</ParamField>
+
+**Response:**
+
+<ResponseField name="user_id" type="string">
+  Unique identifier of the authenticated user
+</ResponseField>
+
+**Example:**
+
+```go
+req := &users.LoginUserRequest{
+    Email:    "user@example.com",
+    Password: "securepassword",
+}
+
+resp, err := client.LoginUser(ctx, req)
+if err != nil {
+    log.Fatal(err)
+}
+
+fmt.Printf("User logged in with ID: %s\n", resp.UserId)
+```
+
+```bash
+# Using grpcurl
+grpcurl -plaintext -d '{
+  "email": "user@example.com",
+  "password": "securepassword"
+}' localhost:50051 users.UsersService/LoginUser
+```
+
+---
+
+### GetUser
+
+Retrieve user details by user ID.
+
+**Request:**
+
+<ParamField path="id" type="string" required>
+  Unique identifier of the user to retrieve
+</ParamField>
+
+**Response:**
+
+<ResponseField name="email" type="string">
+  User's email address
+</ResponseField>
+
+<ResponseField name="notification_preference" type="string">
+  User's notification preference setting
+</ResponseField>
+
+<ResponseField name="created_at" type="string">
+  Timestamp of when the user account was created
+</ResponseField>
+
+<ResponseField name="updated_at" type="string">
+  Timestamp of when the user account was last updated
+</ResponseField>
+
+**Example:**
+
+```go
+req := &users.GetUserRequest{
+    Id: "user-123",
+}
+
+resp, err := client.GetUser(ctx, req)
+if err != nil {
+    log.Fatal(err)
+}
+
+fmt.Printf("Email: %s\n", resp.Email)
+fmt.Printf("Notification Preference: %s\n", resp.NotificationPreference)
+```
+
+```bash
+# Using grpcurl
+grpcurl -plaintext -d '{
+  "id": "user-123"
+}' localhost:50051 users.UsersService/GetUser
+```
+
+---
+
+### UpdateUser
+
+Update user profile information.
+
+**Request:**
+
+<ParamField path="id" type="string" required>
+  Unique identifier of the user to update
+</ParamField>
+
+<ParamField path="notification_preference" type="string" required>
+  User's new notification preference (e.g., "email", "push", "none")
+</ParamField>
+
+**Response:**
+
+Empty response on success.
+
+**Example:**
+
+```go
+req := &users.UpdateUserRequest{
+    Id:                    "user-123",
+    NotificationPreference: "email",
+}
+
+_, err := client.UpdateUser(ctx, req)
+if err != nil {
+    log.Fatal(err)
+}
+
+fmt.Println("User updated successfully")
+```
+
+```bash
+# Using grpcurl
+grpcurl -plaintext -d '{
+  "id": "user-123",
+  "notification_preference": "email"
+}' localhost:50051 users.UsersService/UpdateUser
+```
+
+## Connection Example
+
+```go
+package main
+
+import (
+    "context"
+    "log"
+    "time"
+
+    "google.golang.org/grpc"
+    "google.golang.org/grpc/credentials/insecure"
+    pb "github.com/hitesh22rana/chronoverse/pkg/proto/go/users"
+)
+
+func main() {
+    // Connect to Users service
+    conn, err := grpc.Dial(
+        "localhost:50051",
+        grpc.WithTransportCredentials(insecure.NewCredentials()),
+    )
+    if err != nil {
+        log.Fatalf("Failed to connect: %v", err)
+    }
+    defer conn.Close()
+
+    client := pb.NewUsersServiceClient(conn)
+    ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+    defer cancel()
+
+    // Register a new user
+    resp, err := client.RegisterUser(ctx, &pb.RegisterUserRequest{
+        Email:    "newuser@example.com",
+        Password: "securepassword",
+    })
+    if err != nil {
+        log.Fatalf("RegisterUser failed: %v", err)
+    }
+
+    log.Printf("User registered: %s", resp.UserId)
+}
+```
+
+## Related Services
+
+- [Workflows Service](/grpc/workflows-service) - Uses user_id for workflow operations
+- [Notifications Service](/grpc/notifications-service) - Sends notifications based on user preferences
+- [Analytics Service](/grpc/analytics-service) - Tracks user activity metrics

@@ -1,0 +1,527 @@
+---
+title: Security
+description: JWT authentication, TLS/SSL encryption, and security mechanisms in Chronoverse
+---
+
+## Overview
+
+Chronoverse implements defense-in-depth security with JWT authentication, mutual TLS (mTLS), and encryption at rest and in transit.
+
+## Authentication
+
+### JWT Token-Based Authentication
+
+Chronoverse uses EdDSA (Ed25519) digital signatures for JWT tokens, providing strong security with smaller key sizes.
+
+#### Token Configuration
+
+```go
+const (
+    // Expiry is the expiry time for the jwt token.
+    // For security reasons, the token should expire in a short time.
+    Expiry = time.Minute * 15 // 15 minutes
+
+    // authorizationMetadataKey is the key for the token in the metadata.
+    authorizationMetadataKey = "Authorization"
+)
+```
+
+Source: `internal/pkg/auth/auth.go:26`
+
+<Warning>
+Tokens expire after 15 minutes. Implement token refresh mechanisms in client applications to maintain sessions.
+</Warning>
+
+#### Key Generation
+
+Ed25519 keys are automatically generated during initialization:
+
+```bash
+# Private key generation
+openssl genpkey -algorithm ED25519 -outform pem -out /certs/auth.ed
+
+# Public key extraction
+openssl pkey -in /certs/auth.ed -pubout -out /certs/auth.ed.pub
+```
+
+Keys are stored at:
+- Private key: `certs/auth.ed`
+- Public key: `certs/auth.ed.pub`
+
+### Token Issuance
+
+Tokens are issued with claims including audience, issuer, subject, and role:
+
+```go
+func (a *Auth) IssueToken(ctx context.Context, subject string) (token string, err error) {
+    ctx, span := a.tp.Start(ctx, "Auth.IssueToken")
+    defer func() {
+        if err != nil {
+            span.SetStatus(otelcodes.Error, err.Error())
+            span.RecordError(err)
+        }
+        span.End()
+    }()
+
+    audience, err := audienceFromContext(ctx)
+    if err != nil {
+        return "", err
+    }
+
+    role, err := roleFromContext(ctx)
+    if err != nil {
+        return "", err
+    }
+
+    now := time.Now()
+    _token := jwt.NewWithClaims(&jwt.SigningMethodEd25519{}, jwt.MapClaims{
+        "aud": audience,
+        "nbf": now.Unix(),
+        "iat": now.Unix(),
+        "exp": now.Add(Expiry).Unix(),
+        "iss": a.issuer,
+        "sub": subject,
+        "role": role,
+    })
+
+    token, err = _token.SignedString(a.privateKey)
+    if err != nil {
+        err = status.Errorf(codes.Internal, "failed to sign token: %v", err)
+        return "", err
+    }
+
+    return token, nil
+}
+```
+
+Source: `internal/pkg/auth/auth.go:287`
+
+### Token Validation
+
+Token validation ensures cryptographic integrity and expiration:
+
+```go
+func (a *Auth) ValidateToken(ctx context.Context) (token *jwt.Token, err error) {
+    ctx, span := a.tp.Start(ctx, "Auth.ValidateToken")
+    defer func() {
+        if err != nil {
+            span.SetStatus(otelcodes.Error, err.Error())
+            span.RecordError(err)
+        }
+        span.End()
+    }()
+
+    tokenString, err := tokenFromContext(ctx)
+    if err != nil {
+        return nil, err
+    }
+
+    token, err = jwt.Parse(
+        tokenString,
+        func(token *jwt.Token) (any, error) {
+            if _, ok := token.Method.(*jwt.SigningMethodEd25519); !ok {
+                return nil, status.Error(codes.Unauthenticated, "invalid signing method")
+            }
+            return a.publicKey, nil
+        })
+    if err != nil {
+        if errors.Is(err, jwt.ErrTokenExpired) {
+            err = status.Error(codes.DeadlineExceeded, "token is expired")
+            return nil, err
+        }
+        err = status.Errorf(codes.Unauthenticated, "failed to parse token: %v", err)
+        return nil, err
+    }
+
+    return token, nil
+}
+```
+
+Source: `internal/pkg/auth/auth.go:330`
+
+### Role-Based Access Control
+
+Chronoverse implements two role levels:
+
+```go
+type Role string
+
+const (
+    // RoleAdmin is the admin role.
+    RoleAdmin Role = "admin"
+
+    // RoleUser is the user role.
+    RoleUser Role = "user"
+)
+```
+
+Source: `internal/pkg/auth/auth.go:39`
+
+**Admin Role:**
+- Internal service-to-service communication
+- Administrative operations
+- Health check probes
+
+**User Role:**
+- External API access
+- User-initiated workflows
+- Resource management
+
+### Authorization Headers
+
+Tokens are transmitted via Bearer authentication:
+
+```go
+func WithAuthorizationTokenInMetadata(ctx context.Context, token string) context.Context {
+    md, ok := metadata.FromOutgoingContext(ctx)
+    if ok {
+        md = md.Copy()
+        md.Delete(authorizationMetadataKey)
+        ctx = metadata.NewOutgoingContext(ctx, md)
+    }
+    return metadata.AppendToOutgoingContext(ctx, authorizationMetadataKey, "Bearer "+token)
+}
+```
+
+Source: `internal/pkg/auth/auth.go:150`
+
+## TLS/SSL Encryption
+
+### Certificate Architecture
+
+Chronoverse uses a self-signed Certificate Authority (CA) with service-specific certificates for mTLS.
+
+#### CA Certificate Generation
+
+```bash
+# Generate 4096-bit RSA CA key
+openssl genrsa -out /certs/ca/ca.key 4096
+
+# Create self-signed CA certificate (365 days)
+openssl req -x509 -new -nodes -key /certs/ca/ca.key -sha256 \
+  -days 365 -out /certs/ca/ca.crt \
+  -subj "/CN=chronoverse-ca"
+```
+
+#### Service Certificates
+
+Each service gets its own certificate signed by the CA:
+
+```bash
+# Generate service private key
+openssl genrsa -out /certs/users-service/users-service.key 4096
+
+# Create certificate signing request
+openssl req -new -key /certs/users-service/users-service.key \
+  -out /certs/users-service/users-service.csr \
+  -subj "/CN=chronoverse-users-service"
+
+# Create subject alternative names config
+echo "subjectAltName=IP:0.0.0.0,IP:127.0.0.1,DNS:users-service" > users-service-ext.cnf
+
+# Sign certificate with CA
+openssl x509 -req -in /certs/users-service/users-service.csr \
+  -CA /certs/ca/ca.crt -CAkey /certs/ca/ca.key \
+  -CAcreateserial -out /certs/users-service/users-service.crt \
+  -days 365 -extfile users-service-ext.cnf
+```
+
+### Mutual TLS (mTLS)
+
+All services enforce client certificate authentication:
+
+#### PostgreSQL mTLS
+
+```conf
+# postgresql.conf
+ssl=on
+ssl_cert_file='/certs/postgres/postgres.crt'
+ssl_key_file='/certs/postgres/postgres.key'
+ssl_ca_file='/certs/ca/ca.crt'
+ssl_max_protocol_version='TLSv1.3'
+password_encryption='scram-sha-256'
+
+# pg_hba.conf
+hostssl all all 0.0.0.0/0 scram-sha-256 clientcert=verify-full
+```
+
+#### Redis mTLS
+
+```bash
+redis-server \
+  --port 0 \
+  --tls-port 6379 \
+  --tls-cert-file /certs/redis/redis.crt \
+  --tls-key-file /certs/redis/redis.key \
+  --tls-ca-cert-file /certs/ca/ca.crt \
+  --tls-auth-clients yes
+```
+
+#### ClickHouse mTLS
+
+```xml
+<clickhouse>
+  <tcp_port>0</tcp_port>
+  <tcp_port_secure>9440</tcp_port_secure>
+  <openSSL>
+    <server>
+      <certificateFile>/etc/clickhouse-server/certs/clickhouse.crt</certificateFile>
+      <privateKeyFile>/etc/clickhouse-server/certs/clickhouse.key</privateKeyFile>
+      <caConfig>/etc/clickhouse-server/ca/ca.crt</caConfig>
+      <verificationMode>strict</verificationMode>
+      <minVersion>TLSv1_2</minVersion>
+      <maxVersion>TLSv1_3</maxVersion>
+    </server>
+  </openSSL>
+</clickhouse>
+```
+
+#### Kafka SSL
+
+Kafka uses JKS keystores:
+
+```bash
+# Convert PEM to PKCS12
+openssl pkcs12 -export \
+  -in /certs/kafka/kafka.crt \
+  -inkey /certs/kafka/kafka.key \
+  -certfile /certs/ca/ca.crt \
+  -out /certs/kafka/kafka.p12 \
+  -name kafka \
+  -password pass:chronoverse
+
+# Import PKCS12 to JKS keystore
+keytool -importkeystore \
+  -deststorepass chronoverse \
+  -destkeypass chronoverse \
+  -destkeystore /certs/kafka/kafka.keystore.jks \
+  -srckeystore /certs/kafka/kafka.p12 \
+  -srcstoretype PKCS12 \
+  -srcstorepass chronoverse \
+  -alias kafka
+
+# Create truststore
+keytool -import -trustcacerts -alias CARoot \
+  -file /certs/ca/ca.crt \
+  -keystore /certs/kafka/kafka.truststore.jks \
+  -storepass chronoverse -noprompt
+```
+
+### gRPC TLS Configuration
+
+Services enable TLS through environment variables:
+
+```yaml
+users-service:
+  environment:
+    GRPC_TLS_ENABLED: true
+    GRPC_TLS_CA_FILE: certs/ca/ca.crt
+    GRPC_TLS_CERT_FILE: certs/users-service/users-service.crt
+    GRPC_TLS_KEY_FILE: certs/users-service/users-service.key
+```
+
+Configuration structure:
+
+```go
+type Grpc struct {
+    Host           string        `envconfig:"GRPC_HOST" default:"localhost"`
+    Port           int           `envconfig:"GRPC_PORT" required:"true"`
+    RequestTimeout time.Duration `envconfig:"GRPC_REQUEST_TIMEOUT" default:"500ms"`
+    TLS            struct {
+        Enabled  bool   `envconfig:"GRPC_TLS_ENABLED" default:"false"`
+        CAFile   string `envconfig:"GRPC_TLS_CA_FILE" default:""`
+        CertFile string `envconfig:"GRPC_TLS_CERT_FILE" default:""`
+        KeyFile  string `envconfig:"GRPC_TLS_KEY_FILE" default:""`
+    }
+}
+```
+
+Source: `internal/config/config.go:95`
+
+## Data Encryption
+
+### Encryption at Rest
+
+Sensitive data is encrypted using AES-256-CTR:
+
+```go
+type Crypto struct {
+    secret string
+}
+
+func New(secret string) (*Crypto, error) {
+    // AES-256 secret key must be 32 bytes long
+    if len(secret) != 32 {
+        return nil, status.Error(codes.InvalidArgument, "secret must be 32 bytes long")
+    }
+    return &Crypto{secret: secret}, nil
+}
+
+func (c *Crypto) Encrypt(data string) (string, error) {
+    block, err := aes.NewCipher([]byte(c.secret))
+    if err != nil {
+        return "", status.Errorf(codes.Internal, "failed to create new cipher: %v", err)
+    }
+
+    plainText := []byte(data)
+    stream := cipher.NewCTR(block, bytes)
+    cipherText := make([]byte, len(plainText))
+    stream.XORKeyStream(cipherText, plainText)
+    return c.encode(cipherText), nil
+}
+```
+
+Source: `internal/pkg/crypto/crypto.go:16`
+
+<Warning>
+The encryption secret must be exactly 32 bytes for AES-256. Configure via `CRYPTO_SECRET` environment variable.
+</Warning>
+
+### Decryption
+
+```go
+func (c *Crypto) Decrypt(data string) (string, error) {
+    block, err := aes.NewCipher([]byte(c.secret))
+    if err != nil {
+        return "", status.Errorf(codes.Internal, "failed to create new cipher: %v", err)
+    }
+
+    cipherText, err := c.decode(data)
+    if err != nil {
+        return "", err
+    }
+
+    plainText := make([]byte, len(cipherText))
+    cfb := cipher.NewCTR(block, bytes)
+    cfb.XORKeyStream(plainText, cipherText)
+    return string(plainText), nil
+}
+```
+
+Source: `internal/pkg/crypto/crypto.go:60`
+
+## Security Best Practices
+
+<Steps>
+  <Step title="Rotate Certificates Regularly">
+    Certificates are valid for 365 days. Set up automated rotation:
+    ```bash
+    # Remove old certificates
+    rm -rf certs/
+    
+    # Regenerate all certificates
+    docker-compose up init-certs
+    ```
+  </Step>
+
+  <Step title="Use Strong Secrets">
+    Configure production secrets:
+    ```bash
+    # Generate 32-byte secret for AES-256
+    export CRYPTO_SECRET=$(openssl rand -base64 32 | head -c 32)
+    
+    # Update MeiliSearch master key
+    export MEILI_MASTER_KEY=$(openssl rand -hex 32)
+    ```
+  </Step>
+
+  <Step title="Restrict Network Access">
+    In production, only expose necessary ports:
+    ```yaml
+    # Only expose nginx (port 80)
+    nginx:
+      ports:
+        - "80:80"
+    
+    # All other services communicate internally
+    ```
+  </Step>
+
+  <Step title="Enable TLS Everywhere">
+    Always enable TLS in production:
+    ```bash
+    GRPC_TLS_ENABLED=true
+    POSTGRES_TLS_ENABLED=true
+    REDIS_TLS_ENABLED=true
+    CLICKHOUSE_TLS_ENABLED=true
+    KAFKA_TLS_ENABLED=true
+    MEILISEARCH_TLS_ENABLED=true
+    ```
+  </Step>
+
+  <Step title="Implement Rate Limiting">
+    Protect against brute force attacks by implementing rate limiting on authentication endpoints.
+  </Step>
+</Steps>
+
+## Certificate Management
+
+### File Permissions
+
+Certificates have strict permission requirements:
+
+```bash
+# CA certificates (readable by all)
+chmod 444 /certs/ca/ca.crt
+chmod 444 /certs/ca/ca.key
+
+# Service certificates (readable by all)
+chmod 444 /certs/*/service.crt
+chmod 444 /certs/*/service.key
+
+# PostgreSQL private key (owner only)
+chmod 600 /certs/postgres/postgres.key
+
+# Client certificates
+chmod 600 /certs/clients/client.key
+chmod 444 /certs/clients/client.crt
+
+# ClickHouse (owned by UID 101)
+chown 101:101 /certs/clickhouse/clickhouse.key
+chmod 640 /certs/clickhouse/clickhouse.key
+```
+
+### Certificate Lifecycle
+
+<Accordion title="View certificate lifecycle management">
+  1. **Generation**: Certificates are generated on first run by `init-certs` container
+  2. **Distribution**: Mounted as read-only volumes to service containers
+  3. **Validation**: Services validate certificates on startup
+  4. **Renewal**: Manual renewal required before 365-day expiration
+  5. **Revocation**: Remove old certificates and regenerate all
+</Accordion>
+
+## CSRF Protection
+
+HTTP endpoints implement CSRF protection with HMAC tokens:
+
+```go
+type ValidationConfig struct {
+    SessionExpiry    time.Duration
+    CSRFExpiry       time.Duration
+    RequestBodyLimit int64
+    CSRFHMACSecret   string
+}
+```
+
+Source: `internal/server/server.go:49`
+
+CSRF middleware is applied to state-changing operations:
+
+```go
+router.HandleFunc(
+    "/auth/logout",
+    s.withAllowedMethodMiddleware(
+        http.MethodPost,
+        s.withVerifyCSRFMiddleware(
+            s.withVerifySessionMiddleware(
+                withAttachBasicMetadataHeaderMiddleware(
+                    s.handleLogout,
+                ),
+            ),
+        ),
+    ),
+)
+```
+
+Source: `internal/server/server.go:174`

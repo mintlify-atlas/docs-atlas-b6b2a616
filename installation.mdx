@@ -1,0 +1,809 @@
+---
+title: Installation
+description: Detailed installation instructions for development and production environments
+---
+
+## Overview
+
+Chronoverse supports two deployment modes:
+
+- **Development** - All ports exposed for easy debugging and testing
+- **Production** - Minimal port exposure with enhanced security
+
+Both modes use Docker Compose for orchestration and include automated certificate generation, database migrations, and health checks.
+
+## Prerequisites
+
+<CardGroup cols={2}>
+  <Card title="Docker" icon="docker">
+    Docker Engine 20.10+
+    
+    [Download Docker](https://docs.docker.com/get-docker/)
+  </Card>
+  
+  <Card title="Docker Compose" icon="layer-group">
+    Docker Compose v2.0+
+    
+    [Install Compose](https://docs.docker.com/compose/install/)
+  </Card>
+</CardGroup>
+
+### System Requirements
+
+<AccordionGroup>
+  <Accordion title="Development Environment">
+    **Minimum:**
+    - CPU: 2 cores
+    - RAM: 4 GB
+    - Disk: 10 GB free space
+    
+    **Recommended:**
+    - CPU: 4 cores
+    - RAM: 8 GB
+    - Disk: 20 GB free space
+  </Accordion>
+
+  <Accordion title="Production Environment">
+    **Minimum:**
+    - CPU: 4 cores
+    - RAM: 8 GB
+    - Disk: 50 GB free space
+    
+    **Recommended:**
+    - CPU: 8+ cores
+    - RAM: 16+ GB
+    - Disk: 100+ GB free space with SSD
+    
+    <Note>
+      Production includes resource limits and replica scaling for workers. Adjust `compose.prod.yaml` based on your workload.
+    </Note>
+  </Accordion>
+</AccordionGroup>
+
+## Installation Steps
+
+<Steps>
+  <Step title="Clone the Repository">
+    ```bash
+    git clone https://github.com/hitesh22rana/chronoverse.git
+    cd chronoverse
+    ```
+  </Step>
+
+  <Step title="Choose Your Environment">
+    Select the appropriate compose file for your use case:
+    
+    <Tabs>
+      <Tab title="Development">
+        ```bash
+        docker compose -f compose.dev.yaml up -d
+        ```
+        
+        **Features:**
+        - All service ports exposed
+        - Database ports accessible (PostgreSQL:5432, ClickHouse:9440, Redis:6379)
+        - gRPC services directly accessible (ports 50051-50055)
+        - Dashboard on port 3001
+        - Suitable for local development and testing
+      </Tab>
+      
+      <Tab title="Production">
+        ```bash
+        docker compose -f compose.prod.yaml up -d
+        ```
+        
+        **Features:**
+        - Minimal port exposure (only port 80/443 and monitoring)
+        - Dashboard via Nginx reverse proxy on port 80
+        - Grafana monitoring on port 3000
+        - Internal network isolation
+        - Resource limits and replicas configured
+        - gRPC reflection disabled
+      </Tab>
+    </Tabs>
+  </Step>
+
+  <Step title="Wait for Services to Initialize">
+    Monitor the startup process:
+    
+    ```bash
+    docker compose -f compose.dev.yaml ps
+    ```
+    
+    <Info>
+      First startup includes:
+      - TLS certificate generation (ED25519 keys + service certificates)
+      - Database schema migrations (PostgreSQL + ClickHouse)
+      - Search index creation (Meilisearch)
+      - Kafka topic initialization
+      
+      This may take 2-3 minutes on first run.
+    </Info>
+  </Step>
+
+  <Step title="Verify Installation">
+    Check that all services are healthy:
+    
+    ```bash
+    docker compose -f compose.dev.yaml ps --format "table {{.Name}}\t{{.Status}}"
+    ```
+    
+    All services should show `Up` or `Up (healthy)` status.
+  </Step>
+</Steps>
+
+## Architecture Components
+
+Chronoverse deploys the following services:
+
+### Infrastructure Services
+
+<AccordionGroup>
+  <Accordion title="PostgreSQL (Primary Database)">
+    **Image:** `postgres:18.0-alpine3.22`
+    
+    **Configuration:**
+    ```yaml
+    POSTGRES_USER: primary
+    POSTGRES_PASSWORD: chronoverse
+    POSTGRES_DB: chronoverse
+    POSTGRES_TLS_ENABLED: true
+    ```
+    
+    **Volumes:**
+    - `postgres:/var/lib/postgresql` - Data persistence
+    - `./certs:/certs:ro` - TLS certificates
+    - `./certs/postgres/config:/etc/postgresql` - PostgreSQL config
+    
+    **Security:**
+    - TLS 1.2/1.3 with client certificate verification (mTLS)
+    - SCRAM-SHA-256 password encryption
+    - Custom `postgresql.conf` and `pg_hba.conf`
+  </Accordion>
+
+  <Accordion title="ClickHouse (Analytics Database)">
+    **Image:** `clickhouse:25.8.7.3`
+    
+    **Configuration:**
+    ```yaml
+    CLICKHOUSE_USERNAME: chronoverse-client
+    CLICKHOUSE_PASSWORD: chronoverse
+    CLICKHOUSE_HOSTS: clickhouse:9440
+    CLICKHOUSE_TLS_ENABLED: true
+    ```
+    
+    **Use Case:**
+    - Job execution logs (high-volume inserts)
+    - Analytics aggregations
+    - Time-series data
+    
+    **Port:** 9440 (TLS) - insecure port disabled
+  </Accordion>
+
+  <Accordion title="Redis (Cache & Pub/Sub)">
+    **Image:** `redis:8.2.1-alpine`
+    
+    **Configuration:**
+    ```yaml
+    REDIS_HOST: redis
+    REDIS_TLS_ENABLED: true
+    ```
+    
+    **Use Case:**
+    - Session caching
+    - Real-time pub/sub for notifications
+    - Job state caching
+    
+    **Security:** TLS with mTLS client authentication
+  </Accordion>
+
+  <Accordion title="Apache Kafka (Message Broker)">
+    **Image:** `confluentinc/cp-kafka:7.6.7`
+    
+    **Configuration:**
+    ```yaml
+    KAFKA_BROKERS: kafka:9094
+    KAFKA_TLS_ENABLED: true
+    KAFKA_KRAFT_MODE: true  # No Zookeeper required
+    ```
+    
+    **Topics:**
+    - Job scheduling events
+    - Workflow build requests
+    - Job execution logs
+    - Analytics events
+    
+    **Security:** SSL with mTLS and JKS keystores
+  </Accordion>
+
+  <Accordion title="Meilisearch (Search Engine)">
+    **Image:** `getmeili/meilisearch:v1.15.0`
+    
+    **Configuration:**
+    ```yaml
+    MEILISEARCH_URI: https://meilisearch:7700
+    MEILISEARCH_MASTER_KEY: 35b09c3c7b1001ed1fbed7db29a155d0201ab22d527b41bfba9003da7bb3b404
+    MEILISEARCH_TLS_ENABLED: true
+    ```
+    
+    **Use Case:**
+    - Full-text search for job logs
+    - Workflow search and filtering
+    
+    <Warning>
+      Change the master key in production! Generate a secure key:
+      ```bash
+      openssl rand -hex 32
+      ```
+    </Warning>
+  </Accordion>
+
+  <Accordion title="Grafana LGTM (Observability)">
+    **Image:** `grafana/otel-lgtm:0.11.10`
+    
+    **Components:**
+    - Loki (logs)
+    - Grafana (dashboards)
+    - Tempo (traces)
+    - Mimir (metrics)
+    
+    **Access:** http://localhost:3000 (anonymous admin enabled in dev)
+    
+    **Configuration:**
+    ```yaml
+    OTEL_EXPORTER_OTLP_ENDPOINT: http://lgtm:4317
+    OTEL_EXPORTER_OTLP_PROTOCOL: grpc
+    ```
+  </Accordion>
+</AccordionGroup>
+
+### Application Services
+
+<AccordionGroup>
+  <Accordion title="Server (API Gateway)">
+    **Port:** 8080 (dev), internal (prod)
+    
+    **Environment:**
+    ```yaml
+    SERVER_HOST: 0.0.0.0
+    SERVER_ALLOWED_ORIGINS: "http://0.0.0.0:80,"
+    ```
+    
+    **Features:**
+    - REST API endpoints
+    - JWT authentication middleware
+    - CSRF protection
+    - Request/response logging
+    - OpenTelemetry instrumentation
+  </Accordion>
+
+  <Accordion title="Users Service (gRPC)">
+    **Port:** 50051
+    
+    **Responsibilities:**
+    - User registration and authentication
+    - JWT token generation and validation
+    - User preferences and notification settings
+    
+    **Health Check:**
+    ```bash
+    grpc-health-probe -addr=localhost:50051 \
+      -tls -tls-ca-cert certs/ca/ca.crt \
+      -tls-client-cert certs/users-service/users-service.crt \
+      -tls-client-key certs/users-service/users-service.key
+    ```
+  </Accordion>
+
+  <Accordion title="Workflows Service (gRPC)">
+    **Port:** 50052
+    
+    **Responsibilities:**
+    - Workflow CRUD operations
+    - Workflow configuration validation
+    - Build status management
+    - Schedule configuration
+    
+    **Dependencies:** PostgreSQL, Redis, Kafka
+  </Accordion>
+
+  <Accordion title="Jobs Service (gRPC)">
+    **Port:** 50053
+    
+    **Responsibilities:**
+    - Job lifecycle management
+    - Job log retrieval from ClickHouse
+    - Job search via Meilisearch
+    - SSE event streaming
+    
+    **Dependencies:** PostgreSQL, Redis, ClickHouse, Meilisearch
+  </Accordion>
+
+  <Accordion title="Notifications Service (gRPC)">
+    **Port:** 50054
+    
+    **Responsibilities:**
+    - Real-time notification delivery
+    - Notification preferences
+    - Dashboard alerts
+    
+    **Dependencies:** PostgreSQL, Users Service
+  </Accordion>
+
+  <Accordion title="Analytics Service (gRPC)">
+    **Port:** 50055
+    
+    **Responsibilities:**
+    - Workflow statistics
+    - Job execution metrics
+    - Performance insights
+    - Trend analysis
+    
+    **Dependencies:** PostgreSQL
+  </Accordion>
+</AccordionGroup>
+
+### Worker Components
+
+<AccordionGroup>
+  <Accordion title="Scheduling Worker">
+    **Replicas:** 2 (production)
+    
+    **Resources (Production):**
+    ```yaml
+    CPU: 250m (reserved) / 500m (limit)
+    Memory: 1GB (reserved) / 2GB (limit)
+    ```
+    
+    **Functionality:**
+    - Polls database for due jobs
+    - Publishes job execution events to Kafka
+    - Handles scheduling intervals
+  </Accordion>
+
+  <Accordion title="Workflow Worker">
+    **Replicas:** 2 (production)
+    
+    **Resources (Production):**
+    ```yaml
+    CPU: 250m (reserved) / 500m (limit)
+    Memory: 1GB (reserved) / 2GB (limit)
+    ```
+    
+    **Functionality:**
+    - Consumes workflow build events from Kafka
+    - Builds Docker image configurations
+    - Validates container specifications
+    - Updates workflow build status
+    
+    **Special:** Requires Docker socket access via `docker-proxy`
+  </Accordion>
+
+  <Accordion title="Execution Worker">
+    **Replicas:** 2 (production)
+    
+    **Resources (Production):**
+    ```yaml
+    CPU: 1 (reserved) / 2 (limit)
+    Memory: 2GB (reserved) / 4GB (limit)
+    ```
+    
+    **Functionality:**
+    - Consumes job execution events from Kafka
+    - Executes jobs in isolated Docker containers
+    - Streams logs to Redis and Kafka
+    - Updates job status
+    - Handles timeouts and failures
+    
+    **Environment:**
+    ```yaml
+    DOCKER_HOST: tcp://docker-proxy:2375
+    KAFKA_CONSUMER_GROUP: execution-worker
+    ```
+  </Accordion>
+
+  <Accordion title="JobLogs Processor">
+    **Replicas:** 2 (production)
+    
+    **Functionality:**
+    - Consumes log events from Kafka
+    - Batch inserts to ClickHouse (optimized)
+    - Indexes logs in Meilisearch for search
+    
+    **Performance:** Batching provides ~10x better write throughput to ClickHouse
+  </Accordion>
+
+  <Accordion title="Analytics Processor">
+    **Replicas:** 2 (production)
+    
+    **Functionality:**
+    - Consumes job and workflow events from Kafka
+    - Generates analytics aggregations
+    - Stores results in PostgreSQL
+    - Updates real-time metrics
+  </Accordion>
+</AccordionGroup>
+
+## Security & TLS Configuration
+
+Chronoverse uses comprehensive TLS encryption:
+
+### Automatic Certificate Generation
+
+The `init-certs` service automatically generates:
+
+<Steps>
+  <Step title="Root CA Certificate">
+    4096-bit RSA CA certificate for signing all service certificates
+    
+    ```bash
+    certs/ca/ca.crt
+    certs/ca/ca.key
+    ```
+  </Step>
+
+  <Step title="Service Certificates">
+    Individual certificates for each service:
+    - postgres, redis, clickhouse, kafka, meilisearch
+    - users-service, workflows-service, jobs-service
+    - notifications-service, analytics-service
+    
+    Each includes Subject Alternative Names (SAN) for proper hostname verification.
+  </Step>
+
+  <Step title="Client Certificates">
+    mTLS client certificate for service-to-service communication
+    
+    ```bash
+    certs/clients/client.crt
+    certs/clients/client.key
+    ```
+  </Step>
+
+  <Step title="JWT Keys">
+    ED25519 key pair for JWT token signing
+    
+    ```bash
+    certs/auth.ed
+    certs/auth.ed.pub
+    ```
+  </Step>
+</Steps>
+
+<Warning>
+  Certificates are generated with 365-day validity. For production, consider implementing certificate rotation or using a proper PKI solution.
+</Warning>
+
+### TLS Configuration
+
+All services use TLS 1.2/1.3:
+
+```yaml
+# Example service configuration
+USERS_SERVICE_TLS_ENABLED: true
+USERS_SERVICE_TLS_CA_FILE: certs/ca/ca.crt
+CLIENT_TLS_CERT_FILE: certs/clients/client.crt
+CLIENT_TLS_KEY_FILE: certs/clients/client.key
+```
+
+## Production Deployment
+
+### Port Configuration
+
+**Development:**
+- All service ports exposed
+- Dashboard: 3001
+- API: 8080
+- Databases accessible externally
+
+**Production:**
+- Only port 80 (Nginx) and 3000 (Grafana) exposed
+- All internal services on private Docker network
+- Dashboard and API proxied through Nginx
+
+### Nginx Reverse Proxy
+
+Production includes Nginx for:
+- Dashboard serving on port 80
+- API proxying at `/api/*`
+- SSE support for real-time logs
+- Proper timeout configuration
+
+<CodeGroup>
+```nginx Server Block
+server {
+    listen 80;
+    
+    # Dashboard
+    location / {
+        proxy_pass http://dashboard:3000;
+        proxy_set_header Host $host;
+    }
+    
+    # SSE Events (special handling)
+    location ~ ^/api/workflows/[^/]+/jobs/[^/]+/events$ {
+        proxy_pass http://server:8080;
+        proxy_buffering off;
+        proxy_cache off;
+        proxy_read_timeout 24h;
+    }
+    
+    # REST API
+    location /api/ {
+        proxy_pass http://server:8080/;
+        proxy_buffering on;
+    }
+}
+```
+</CodeGroup>
+
+### Resource Limits
+
+Production compose includes resource constraints:
+
+<Tabs>
+  <Tab title="Databases">
+    ```yaml
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 1G
+        reservations:
+          cpus: "0.5"
+          memory: 512M
+    ```
+  </Tab>
+  
+  <Tab title="Services">
+    ```yaml
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 256M
+        reservations:
+          cpus: "0.1"
+          memory: 128M
+    ```
+  </Tab>
+  
+  <Tab title="Low Resource Workers">
+    ```yaml
+    deploy:
+      replicas: 2
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 2G
+        reservations:
+          cpus: "0.25"
+          memory: 1G
+    ```
+  </Tab>
+  
+  <Tab title="High Resource Workers">
+    ```yaml
+    deploy:
+      replicas: 2
+      resources:
+        limits:
+          cpus: "2"
+          memory: 4G
+        reservations:
+          cpus: "1"
+          memory: 2G
+    ```
+  </Tab>
+</Tabs>
+
+<Info>
+  Adjust these limits based on your workload. Monitor resource usage via Grafana dashboards.
+</Info>
+
+## Configuration
+
+### Custom Configuration
+
+Create a `.env` file to override defaults:
+
+```bash .env
+# Database
+POSTGRES_PASSWORD=your-secure-password
+CLICKHOUSE_PASSWORD=your-secure-password
+
+# Search
+MEILISEARCH_MASTER_KEY=your-secure-master-key
+
+# Server
+SERVER_ALLOWED_ORIGINS=https://yourdomain.com,https://www.yourdomain.com
+
+# Environment
+ENV=production
+```
+
+### Scaling Workers
+
+Scale individual workers:
+
+```bash
+docker compose -f compose.prod.yaml up -d --scale execution-worker=4
+```
+
+Or modify `compose.prod.yaml`:
+
+```yaml
+execution-worker:
+  deploy:
+    replicas: 4  # Increase from 2
+```
+
+## Maintenance
+
+### Backup
+
+<Tabs>
+  <Tab title="PostgreSQL">
+    ```bash
+    docker exec postgres pg_dump -U primary chronoverse > backup.sql
+    ```
+  </Tab>
+  
+  <Tab title="ClickHouse">
+    ```bash
+    docker exec clickhouse clickhouse-client --secure \
+      --host=localhost --port=9440 \
+      --user=chronoverse-client --password=chronoverse \
+      --query="BACKUP DATABASE default TO Disk('backups', 'backup.zip')"
+    ```
+  </Tab>
+  
+  <Tab title="Volumes">
+    ```bash
+    docker run --rm \
+      -v chronoverse_postgres:/data \
+      -v $(pwd):/backup \
+      alpine tar czf /backup/postgres-backup.tar.gz /data
+    ```
+  </Tab>
+</Tabs>
+
+### Restore
+
+```bash
+# PostgreSQL
+docker exec -i postgres psql -U primary chronoverse < backup.sql
+
+# ClickHouse
+docker exec clickhouse clickhouse-client --secure \
+  --host=localhost --port=9440 \
+  --user=chronoverse-client --password=chronoverse \
+  --query="RESTORE DATABASE default FROM Disk('backups', 'backup.zip')"
+```
+
+### Logs
+
+View service logs:
+
+```bash
+# All services
+docker compose -f compose.prod.yaml logs -f
+
+# Specific service
+docker compose -f compose.prod.yaml logs -f execution-worker
+
+# Last 100 lines
+docker compose -f compose.prod.yaml logs --tail=100 scheduling-worker
+```
+
+### Updates
+
+Update to latest version:
+
+```bash
+# Pull latest changes
+git pull origin main
+
+# Rebuild and restart
+docker compose -f compose.prod.yaml up -d --build
+```
+
+<Warning>
+  Database migrations run automatically on startup. Always backup before updating!
+</Warning>
+
+## Monitoring
+
+Access observability dashboards:
+
+- **Grafana:** http://localhost:3000
+- **Traces:** Tempo (via Grafana)
+- **Logs:** Loki (via Grafana)
+- **Metrics:** Mimir (via Grafana)
+
+### Health Checks
+
+All services include health checks:
+
+```bash
+# Check service health
+docker compose -f compose.prod.yaml ps
+
+# Test gRPC service
+grpc-health-probe -addr=localhost:50051
+```
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Certificate errors">
+    Remove and regenerate certificates:
+    ```bash
+    docker compose down
+    rm -rf certs/
+    docker compose up -d
+    ```
+  </Accordion>
+
+  <Accordion title="Database migration failed">
+    Check migration logs:
+    ```bash
+    docker compose logs init-database-migration
+    ```
+    
+    Manually run migrations:
+    ```bash
+    docker compose up init-database-migration
+    ```
+  </Accordion>
+
+  <Accordion title="Worker not processing jobs">
+    Verify Kafka connectivity:
+    ```bash
+    docker compose exec kafka kafka-topics --bootstrap-server kafka:9094 --list
+    ```
+    
+    Check worker logs:
+    ```bash
+    docker compose logs execution-worker
+    ```
+  </Accordion>
+
+  <Accordion title="High resource usage">
+    Monitor resource consumption:
+    ```bash
+    docker stats
+    ```
+    
+    Adjust resource limits in compose file or scale down replicas.
+  </Accordion>
+
+  <Accordion title="Port conflicts">
+    Check if ports are already in use:
+    ```bash
+    sudo lsof -i :8080
+    sudo lsof -i :5432
+    ```
+    
+    Modify port mappings in compose file.
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Configuration" icon="gear" href="/configuration">
+    Learn about advanced configuration options
+  </Card>
+  
+  <Card title="API Reference" icon="book" href="/api-reference">
+    Explore the REST API
+  </Card>
+  
+  <Card title="Architecture" icon="sitemap" href="/architecture">
+    Deep dive into system architecture
+  </Card>
+  
+  <Card title="Security" icon="shield" href="/security">
+    Security best practices and hardening
+  </Card>
+</CardGroup>

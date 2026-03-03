@@ -1,0 +1,145 @@
+---
+title: 'Get Job Logs'
+api: 'GET /workflows/{workflow_id}/jobs/{job_id}/logs'
+description: 'Retrieve paginated logs from a job execution'
+---
+
+<Info>
+Logs are cached for 2 hours when pagination is complete (empty cursor returned).
+</Info>
+
+## Path Parameters
+
+<ParamField path="workflow_id" type="string" required>
+  The unique identifier of the workflow
+</ParamField>
+
+<ParamField path="job_id" type="string" required>
+  The unique identifier of the job
+</ParamField>
+
+## Query Parameters
+
+<ParamField query="cursor" type="string">
+  Pagination cursor from a previous response to fetch the next page of logs
+</ParamField>
+
+## Response
+
+<ResponseField name="id" type="string">
+  Job identifier
+</ResponseField>
+
+<ResponseField name="workflow_id" type="string">
+  Workflow identifier
+</ResponseField>
+
+<ResponseField name="logs" type="array">
+  Array of log entries ordered by sequence number
+  
+  <ResponseField name="timestamp" type="string">
+    ISO 8601 timestamp when the log was created
+  </ResponseField>
+  
+  <ResponseField name="message" type="string">
+    The log message content
+  </ResponseField>
+  
+  <ResponseField name="sequence_num" type="integer">
+    Sequence number for ordering logs
+  </ResponseField>
+  
+  <ResponseField name="stream" type="string">
+    Stream type: `stdout` or `stderr`
+  </ResponseField>
+</ResponseField>
+
+<ResponseField name="cursor" type="string">
+  Pagination cursor for next page. Empty string indicates no more logs available.
+</ResponseField>
+
+## Examples
+
+<CodeGroup>
+```bash cURL
+# Get first page of logs
+curl -X GET 'https://api.chronoverse.dev/workflows/wf_abc123/jobs/job_xyz789/logs' \
+  -H 'Authorization: Bearer YOUR_API_TOKEN'
+
+# Get next page using cursor
+curl -X GET 'https://api.chronoverse.dev/workflows/wf_abc123/jobs/job_xyz789/logs?cursor=next_token' \
+  -H 'Authorization: Bearer YOUR_API_TOKEN'
+```
+
+```javascript JavaScript
+// Fetch all logs with pagination
+const fetchAllLogs = async (workflowId, jobId) => {
+  const allLogs = [];
+  let cursor = '';
+  
+  do {
+    const url = new URL(
+      `https://api.chronoverse.dev/workflows/${workflowId}/jobs/${jobId}/logs`
+    );
+    if (cursor) {
+      url.searchParams.set('cursor', cursor);
+    }
+    
+    const response = await fetch(url, {
+      headers: {
+        'Authorization': 'Bearer YOUR_API_TOKEN'
+      }
+    });
+    
+    const data = await response.json();
+    allLogs.push(...data.logs);
+    cursor = data.cursor;
+  } while (cursor);
+  
+  return allLogs;
+};
+
+const logs = await fetchAllLogs('wf_abc123', 'job_xyz789');
+console.log(`Retrieved ${logs.length} log entries`);
+
+// Display logs
+logs.forEach(log => {
+  const prefix = log.stream === 'stderr' ? '[ERROR]' : '[INFO]';
+  console.log(`${prefix} ${log.timestamp}: ${log.message}`);
+});
+```
+</CodeGroup>
+
+### Example Response
+
+```json
+{
+  "id": "job_xyz789",
+  "workflow_id": "wf_abc123",
+  "logs": [
+    {
+      "timestamp": "2026-03-03T10:00:05.123Z",
+      "message": "Starting workflow execution",
+      "sequence_num": 1,
+      "stream": "stdout"
+    },
+    {
+      "timestamp": "2026-03-03T10:00:06.456Z",
+      "message": "Loading configuration",
+      "sequence_num": 2,
+      "stream": "stdout"
+    },
+    {
+      "timestamp": "2026-03-03T10:00:07.789Z",
+      "message": "Warning: deprecated option used",
+      "sequence_num": 3,
+      "stream": "stderr"
+    }
+  ],
+  "cursor": "eyJzZXFfbnVtIjozfQ=="
+}
+```
+
+<Warning>
+This endpoint returns all logs (both stdout and stderr). Use the [Search Logs](/api/jobs/search-logs) endpoint to filter by stream type.
+</Warning>

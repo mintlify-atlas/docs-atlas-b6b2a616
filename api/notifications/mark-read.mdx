@@ -1,0 +1,36 @@
+---
+title: "Mark Notifications Read"
+api: "PUT /notifications"
+description: "Mark one or more notifications as read for the authenticated user"
+---
+
+## Request Body
+
+<ParamField body="ids" type="array" required>
+  Array of notification IDs to mark as read. Each ID should be a string.
+</ParamField>
+
+## Response
+
+Returns a `204 No Content` status on success with an empty response body.
+
+<Info>
+  The user ID is automatically extracted from the authentication context. Only notifications belonging to the authenticated user will be marked as read.
+</Info>
+
+## Example Request
+
+```bash
+curl -X PUT "https://api.chronoverse.com/notifications" \
+  -H "Authorization: Bearer YOUR_API_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "ids": ["notif_12345", "notif_12346", "notif_12347"]
+  }'
+```
+
+## Example Response
+
+```
+HTTP/1.1 204 No Content
+```

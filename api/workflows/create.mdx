@@ -1,0 +1,57 @@
+---
+title: Create Workflow
+api: POST /workflows
+---
+
+Creates a new workflow for the authenticated user.
+
+## Request Body
+
+<ParamField body="name" type="string" required>
+  Name of the workflow
+</ParamField>
+
+<ParamField body="payload" type="string" required>
+  JSON string containing the workflow payload configuration
+</ParamField>
+
+<ParamField body="kind" type="string" required>
+  Kind of workflow to create
+</ParamField>
+
+<ParamField body="interval" type="integer" required>
+  Execution interval measured in minutes
+</ParamField>
+
+<ParamField body="max_consecutive_job_failures_allowed" type="integer" required>
+  Maximum number of consecutive job failures allowed before the workflow is terminated
+</ParamField>
+
+## Response
+
+<ResponseField name="id" type="string">
+  Unique identifier of the created workflow
+</ResponseField>
+
+## Example Request
+
+```bash
+curl -X POST https://api.chronoverse.com/workflows \
+  -H "Authorization: Bearer YOUR_API_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Daily Data Sync",
+    "payload": "{\"source\":\"database\",\"destination\":\"s3\"}",
+    "kind": "scheduled",
+    "interval": 1440,
+    "max_consecutive_job_failures_allowed": 3
+  }'
+```
+
+## Example Response
+
+```json
+{
+  "id": "wf_1234567890abcdef"
+}
+```

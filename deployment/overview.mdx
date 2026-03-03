@@ -1,0 +1,166 @@
+---
+title: Deployment Overview
+description: Overview of Chronoverse deployment options and prerequisites
+---
+
+Chronoverse provides flexible Docker-based deployment options for both development and production environments. The platform uses Docker Compose to orchestrate a microservices architecture with secure, TLS-enabled communication between all components.
+
+## Architecture
+
+Chronoverse consists of the following components:
+
+### Infrastructure Services
+- **PostgreSQL** - Primary relational database for metadata and state
+- **ClickHouse** - Analytics database for job logs and metrics
+- **Redis** - Cache and session storage
+- **Kafka** - Event streaming and message broker
+- **Meilisearch** - Search engine for job logs
+- **LGTM Stack** - Observability (Loki, Grafana, Tempo, Mimir)
+
+### Application Services
+- **users-service** - User authentication and management (gRPC on port 50051)
+- **workflows-service** - Workflow orchestration (gRPC on port 50052)
+- **jobs-service** - Job execution management (gRPC on port 50053)
+- **notifications-service** - Notification delivery (gRPC on port 50054)
+- **analytics-service** - Analytics and metrics (gRPC on port 50055)
+- **server** - REST API gateway (HTTP on port 8080)
+- **dashboard** - Web UI (port 3000/3001)
+
+### Workers
+- **scheduling-worker** - Schedules workflow executions
+- **workflow-worker** - Processes workflow events
+- **execution-worker** - Executes workflow jobs
+- **joblogs-processor** - Processes and indexes job logs
+- **analytics-processor** - Aggregates analytics data
+
+## Security Features
+
+Chronoverse implements enterprise-grade security:
+
+- **TLS Everywhere** - All services use mTLS for secure communication
+- **Certificate Management** - Automated certificate generation and rotation
+- **Authentication** - ED25519 keypair-based authentication
+- **Network Isolation** - Services communicate on isolated Docker network
+
+## Prerequisites
+
+<Steps>
+  <Step title="Install Docker">
+    Install Docker Engine 20.10 or later:
+    
+    ```bash
+    # Linux
+    curl -fsSL https://get.docker.com -o get-docker.sh
+    sudo sh get-docker.sh
+    
+    # Verify installation
+    docker --version
+    ```
+  </Step>
+
+  <Step title="Install Docker Compose">
+    Install Docker Compose V2 (included with Docker Desktop):
+    
+    ```bash
+    # Verify installation
+    docker compose version
+    ```
+    
+    <Note>
+      Chronoverse requires Docker Compose V2. The legacy `docker-compose` (with hyphen) is not supported.
+    </Note>
+  </Step>
+
+  <Step title="System Requirements">
+    Ensure your system meets the minimum requirements:
+    
+    **Development:**
+    - CPU: 4 cores
+    - RAM: 8 GB
+    - Disk: 20 GB free space
+    
+    **Production:**
+    - CPU: 8+ cores
+    - RAM: 16+ GB
+    - Disk: 100+ GB free space (depending on workload)
+  </Step>
+
+  <Step title="Clone Repository">
+    ```bash
+    git clone https://github.com/your-org/chronoverse.git
+    cd chronoverse
+    ```
+  </Step>
+</Steps>
+
+## Deployment Options
+
+### Development Environment
+
+The development configuration (`compose.dev.yaml`) is optimized for local development:
+
+- Builds images from local source code
+- Exposes all service ports for debugging
+- No resource limits
+- Includes observability stack (Grafana on port 3000)
+- Single replica for all workers
+
+[Learn more about development deployment →](/deployment/development)
+
+### Production Environment
+
+The production configuration (`compose.prod.yaml`) is optimized for production:
+
+- Uses pre-built images from GitHub Container Registry
+- Implements resource limits and reservations
+- Scales workers with multiple replicas
+- Includes nginx reverse proxy on port 80
+- Optimized for stability and performance
+
+[Learn more about production deployment →](/deployment/production)
+
+## Quick Start
+
+<CodeGroup>
+```bash Development
+# Start development environment
+docker compose -f compose.dev.yaml up -d
+
+# Check service health
+docker compose -f compose.dev.yaml ps
+
+# View logs
+docker compose -f compose.dev.yaml logs -f
+```
+
+```bash Production
+# Start production environment
+docker compose -f compose.prod.yaml up -d
+
+# Check service health
+docker compose -f compose.prod.yaml ps
+
+# View logs
+docker compose -f compose.prod.yaml logs -f
+```
+</CodeGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Development Setup" icon="code" href="/deployment/development">
+    Set up your local development environment
+  </Card>
+  
+  <Card title="Production Deployment" icon="server" href="/deployment/production">
+    Deploy Chronoverse to production
+  </Card>
+  
+  <Card title="Configuration" icon="sliders" href="/deployment/configuration">
+    Configure environment variables and settings
+  </Card>
+  
+  <Card title="Monitoring" icon="chart-line" href="/observability/overview">
+    Set up monitoring and observability
+  </Card>
+</CardGroup>

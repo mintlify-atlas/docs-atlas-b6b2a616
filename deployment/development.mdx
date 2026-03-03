@@ -1,0 +1,313 @@
+---
+title: Development Environment
+description: Set up Chronoverse for local development with compose.dev.yaml
+---
+
+The development environment is optimized for local development and debugging. It builds all services from source and exposes ports for direct access to individual services.
+
+## Configuration Overview
+
+The `compose.dev.yaml` configuration includes:
+
+- **Local builds** - Services are built from local source using the Dockerfile
+- **All ports exposed** - Direct access to databases and services for debugging
+- **No resource limits** - Services use available resources freely
+- **Observability built-in** - Grafana dashboard on port 3000
+- **Hot reload support** - Volume mounts for certificate sharing
+
+## Starting the Development Environment
+
+<Steps>
+  <Step title="Clone the Repository">
+    ```bash
+    git clone https://github.com/your-org/chronoverse.git
+    cd chronoverse
+    ```
+  </Step>
+
+  <Step title="Start All Services">
+    Start the entire stack with automatic certificate generation:
+    
+    ```bash
+    docker compose -f compose.dev.yaml up -d
+    ```
+    
+    <Note>
+      The first startup will take several minutes as it builds all service images and generates TLS certificates.
+    </Note>
+  </Step>
+
+  <Step title="Verify Services">
+    Check that all services are running and healthy:
+    
+    ```bash
+    docker compose -f compose.dev.yaml ps
+    ```
+    
+    All services should show status `healthy` or `running`.
+  </Step>
+
+  <Step title="Access the Dashboard">
+    Open your browser and navigate to:
+    
+    - **Dashboard**: http://localhost:3001
+    - **API Server**: http://localhost:8080
+    - **Grafana**: http://localhost:3000
+  </Step>
+</Steps>
+
+## Exposed Ports
+
+The development environment exposes the following ports on localhost:
+
+| Service | Port | Purpose |
+|---------|------|----------|
+| PostgreSQL | 5432 | Database access |
+| ClickHouse | 9440 | Analytics database (TLS) |
+| Redis | 6379 | Cache (TLS) |
+| Kafka | 9094, 9093 | Event streaming (SSL) |
+| Meilisearch | 7700 | Search engine (HTTPS) |
+| Grafana/LGTM | 3000, 4317 | Observability |
+| users-service | 50051 | User management (gRPC/TLS) |
+| workflows-service | 50052 | Workflow orchestration (gRPC/TLS) |
+| jobs-service | 50053 | Job management (gRPC/TLS) |
+| notifications-service | 50054 | Notifications (gRPC/TLS) |
+| analytics-service | 50055 | Analytics (gRPC/TLS) |
+| server | 8080 | REST API gateway |
+| dashboard | 3001 | Web interface |
+
+## Working with the Development Environment
+
+### Viewing Logs
+
+<CodeGroup>
+```bash All Services
+# Follow all service logs
+docker compose -f compose.dev.yaml logs -f
+```
+
+```bash Specific Service
+# View logs for a specific service
+docker compose -f compose.dev.yaml logs -f users-service
+```
+
+```bash Multiple Services
+# View logs for multiple services
+docker compose -f compose.dev.yaml logs -f server workflows-service
+```
+</CodeGroup>
+
+### Rebuilding Services
+
+After making code changes, rebuild and restart services:
+
+```bash
+# Rebuild all services
+docker compose -f compose.dev.yaml build
+
+# Rebuild specific service
+docker compose -f compose.dev.yaml build users-service
+
+# Rebuild and restart
+docker compose -f compose.dev.yaml up -d --build
+```
+
+### Restarting Services
+
+```bash
+# Restart all services
+docker compose -f compose.dev.yaml restart
+
+# Restart specific service
+docker compose -f compose.dev.yaml restart users-service
+```
+
+### Stopping the Environment
+
+<CodeGroup>
+```bash Stop (Keep Data)
+# Stop services but keep volumes
+docker compose -f compose.dev.yaml down
+```
+
+```bash Stop (Remove Data)
+# Stop services and remove volumes
+docker compose -f compose.dev.yaml down -v
+```
+</CodeGroup>
+
+<Warning>
+  Using `down -v` will delete all data including databases and certificates. Only use this for a complete reset.
+</Warning>
+
+## Certificate Management
+
+The `init-certs` service automatically generates TLS certificates on first startup:
+
+- **CA Certificate** - Root certificate authority
+- **Service Certificates** - Individual certs for each service
+- **Client Certificates** - Client certificates for mTLS authentication
+- **Auth Keypair** - ED25519 keypair for JWT signing
+
+Certificates are stored in `./certs/` and mounted as read-only volumes.
+
+### Regenerating Certificates
+
+If you need to regenerate certificates:
+
+```bash
+# Stop services
+docker compose -f compose.dev.yaml down
+
+# Remove certificate directory
+rm -rf certs/
+
+# Start services (will regenerate)
+docker compose -f compose.dev.yaml up -d
+```
+
+## Database Access
+
+### PostgreSQL
+
+Connect to PostgreSQL with TLS:
+
+```bash
+# Using psql with client certificates
+psql "host=localhost port=5432 user=primary dbname=chronoverse \
+  sslmode=verify-full \
+  sslrootcert=certs/ca/ca.crt \
+  sslcert=certs/clients/client.crt \
+  sslkey=certs/clients/client.key"
+```
+
+### ClickHouse
+
+Connect to ClickHouse:
+
+```bash
+# Using clickhouse-client
+docker exec -it clickhouse clickhouse-client \
+  --secure \
+  --host=localhost \
+  --port=9440 \
+  --user=chronoverse-client \
+  --password=chronoverse
+```
+
+### Redis
+
+Connect to Redis with TLS:
+
+```bash
+# Using redis-cli
+docker exec -it redis redis-cli \
+  --tls \
+  --cert /certs/clients/client.crt \
+  --key /certs/clients/client.key \
+  --cacert /certs/ca/ca.crt \
+  -p 6379
+```
+
+## Health Checks
+
+All services implement health checks:
+
+```bash
+# Check service health
+docker compose -f compose.dev.yaml ps
+
+# Detailed health status
+docker inspect --format='{{.State.Health.Status}}' users-service
+
+# View health check logs
+docker inspect --format='{{range .State.Health.Log}}{{.Output}}{{end}}' users-service
+```
+
+## Observability
+
+The development environment includes the LGTM stack (Loki, Grafana, Tempo, Mimir):
+
+- **Grafana**: http://localhost:3000
+- **OTLP Endpoint**: http://localhost:4317
+
+All services export telemetry to the LGTM stack via OTLP/gRPC.
+
+## Troubleshooting
+
+### Services Not Starting
+
+Check service dependencies and health:
+
+```bash
+# View service status
+docker compose -f compose.dev.yaml ps
+
+# Check specific service logs
+docker compose -f compose.dev.yaml logs users-service
+```
+
+### Certificate Errors
+
+If you see certificate-related errors:
+
+```bash
+# Verify certificates were generated
+ls -la certs/
+
+# Check init-certs logs
+docker compose -f compose.dev.yaml logs init-certs
+
+# Regenerate if needed (see Certificate Management above)
+```
+
+### Port Conflicts
+
+If ports are already in use:
+
+```bash
+# Find what's using a port
+sudo lsof -i :5432
+
+# Stop conflicting service or modify compose file
+```
+
+### Database Connection Issues
+
+Verify database services are healthy:
+
+```bash
+# Check database health
+docker compose -f compose.dev.yaml ps postgres clickhouse redis
+
+# View database logs
+docker compose -f compose.dev.yaml logs postgres
+```
+
+## Development Workflow
+
+1. **Make Code Changes** - Edit source files in your IDE
+2. **Rebuild Service** - `docker compose -f compose.dev.yaml build <service>`
+3. **Restart Service** - `docker compose -f compose.dev.yaml up -d <service>`
+4. **View Logs** - `docker compose -f compose.dev.yaml logs -f <service>`
+5. **Test Changes** - Access service via exposed port
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Configuration Reference" icon="sliders" href="/deployment/configuration">
+    Detailed environment variable reference
+  </Card>
+  
+  <Card title="API Documentation" icon="book" href="/api-reference/introduction">
+    Explore the REST API
+  </Card>
+  
+  <Card title="Observability" icon="chart-line" href="/observability/overview">
+    Monitor your services with Grafana
+  </Card>
+  
+  <Card title="Production Deployment" icon="server" href="/deployment/production">
+    Deploy to production when ready
+  </Card>
+</CardGroup>

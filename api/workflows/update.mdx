@@ -1,0 +1,48 @@
+---
+title: Update Workflow
+api: PUT /workflows/{workflow_id}
+---
+
+Updates an existing workflow's configuration.
+
+## Path Parameters
+
+<ParamField path="workflow_id" type="string" required>
+  Unique identifier of the workflow to update
+</ParamField>
+
+## Request Body
+
+<ParamField body="name" type="string" required>
+  Updated name of the workflow
+</ParamField>
+
+<ParamField body="payload" type="string" required>
+  Updated JSON string containing the workflow payload configuration
+</ParamField>
+
+<ParamField body="interval" type="integer" required>
+  Updated execution interval measured in minutes
+</ParamField>
+
+<ParamField body="max_consecutive_job_failures_allowed" type="integer" required>
+  Updated maximum number of consecutive job failures allowed
+</ParamField>
+
+## Response
+
+Returns `204 No Content` on success.
+
+## Example Request
+
+```bash
+curl -X PUT https://api.chronoverse.com/workflows/wf_1234567890abcdef \
+  -H "Authorization: Bearer YOUR_API_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Daily Data Sync - Updated",
+    "payload": "{\"source\":\"database\",\"destination\":\"s3\",\"compression\":true}",
+    "interval": 720,
+    "max_consecutive_job_failures_allowed": 5
+  }'
+```

@@ -1,0 +1,279 @@
+---
+title: Workflow Types
+description: Learn about HEARTBEAT and CONTAINER workflow types in Chronoverse
+---
+
+Chronoverse supports two distinct workflow types that enable different execution patterns: **HEARTBEAT** for health monitoring and **CONTAINER** for custom containerized workloads.
+
+## Overview
+
+Workflows are the core building blocks in Chronoverse. Each workflow has:
+
+- **Kind**: The type of workflow (HEARTBEAT or CONTAINER)
+- **Interval**: Execution frequency in minutes (1-10,080 minutes, max 1 week)
+- **Payload**: JSON configuration specific to the workflow type
+- **Build Status**: Lifecycle state (QUEUED, STARTED, COMPLETED, FAILED, CANCELED)
+
+## HEARTBEAT Workflow
+
+HEARTBEAT workflows perform HTTP health checks against specified endpoints. They're ideal for monitoring service availability and uptime.
+
+### Configuration
+
+<CodeGroup>
+```json Example Payload
+{
+  "timeout": "10s",
+  "endpoint": "https://api.example.com/health",
+  "expected_status_code": 200,
+  "headers": {
+    "Authorization": ["Bearer token123"],
+    "X-Custom-Header": ["value1", "value2"]
+  }
+}
+```
+
+```json Minimal Payload
+{
+  "endpoint": "https://api.example.com/health"
+}
+```
+</CodeGroup>
+
+### Parameters
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `timeout` | string | No | `10s` | Request timeout (max 5 minutes) |
+| `endpoint` | string | Yes | - | Target URL for health check |
+| `expected_status_code` | integer | No | `200` | Expected HTTP status (100-599) |
+| `headers` | object | No | `{}` | Custom HTTP headers |
+
+### How It Works
+
+<Steps>
+  <Step title="Schedule Creation">
+    Create a HEARTBEAT workflow with your endpoint configuration
+  </Step>
+  
+  <Step title="Automatic Execution">
+    Jobs are automatically scheduled based on the interval
+  </Step>
+  
+  <Step title="HTTP Request">
+    GET request is sent to the endpoint with specified headers
+  </Step>
+  
+  <Step title="Status Validation">
+    Response status code is compared against expected value
+  </Step>
+  
+  <Step title="Result Recording">
+    Job completes with SUCCESS or FAILURE status
+  </Step>
+</Steps>
+
+### Example Usage
+
+```javascript API Monitoring
+// Monitor API endpoint every 5 minutes
+{
+  "name": "API Health Check",
+  "kind": "HEARTBEAT",
+  "interval": 5,
+  "max_consecutive_job_failures_allowed": 3,
+  "payload": {
+    "timeout": "30s",
+    "endpoint": "https://api.production.com/health",
+    "expected_status_code": 200,
+    "headers": {
+      "Authorization": ["Bearer prod-token"]
+    }
+  }
+}
+```
+
+<Info>
+HEARTBEAT workflows use HTTP GET requests only. The response body is not evaluated—only the status code matters.
+</Info>
+
+## CONTAINER Workflow
+
+CONTAINER workflows execute custom Docker containers, enabling you to run arbitrary scripts, processes, and applications in isolated environments.
+
+### Configuration
+
+<CodeGroup>
+```json Python Script
+{
+  "timeout": "5m",
+  "image": "python:3.11-slim",
+  "cmd": [
+    "python",
+    "-c",
+    "print('Processing data...'); import time; time.sleep(2); print('Done!')"
+  ],
+  "env": {
+    "API_KEY": "secret123",
+    "ENVIRONMENT": "production"
+  }
+}
+```
+
+```json Node.js Application
+{
+  "timeout": "10m",
+  "image": "node:20-alpine",
+  "cmd": ["node", "app.js"],
+  "env": {
+    "NODE_ENV": "production",
+    "DATABASE_URL": "postgresql://localhost/db"
+  }
+}
+```
+
+```json Shell Script
+{
+  "timeout": "2m",
+  "image": "alpine:latest",
+  "cmd": ["sh", "-c", "echo 'Starting backup...'; tar -czf backup.tar.gz /data"]
+}
+```
+</CodeGroup>
+
+### Parameters
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `timeout` | string | No | `30s` | Container execution timeout (max 1 hour) |
+| `image` | string | Yes | - | Docker image name and tag |
+| `cmd` | array | No | `[]` | Command and arguments to execute |
+| `env` | object | No | `{}` | Environment variables (KEY=VALUE) |
+
+### Execution Lifecycle
+
+<Steps>
+  <Step title="Image Pull">
+    Docker image is pulled from the registry during workflow creation
+  </Step>
+  
+  <Step title="Container Creation">
+    Container is created with specified command and environment
+  </Step>
+  
+  <Step title="Container Start">
+    Container starts executing with auto-removal enabled
+  </Step>
+  
+  <Step title="Log Streaming">
+    Both stdout and stderr are captured and streamed in real-time
+  </Step>
+  
+  <Step title="Completion">
+    Container exits and is automatically removed. Exit code determines job status
+  </Step>
+</Steps>
+
+### Log Streaming
+
+CONTAINER workflows automatically capture and stream both stdout and stderr:
+
+```json Log Entry Format
+{
+  "timestamp": "2026-03-03T10:30:45.123Z",
+  "message": "Processing completed successfully",
+  "sequence_num": 42,
+  "stream": "stdout"
+}
+```
+
+<Tabs>
+  <Tab title="stdout">
+    Standard output from the container process
+  </Tab>
+  <Tab title="stderr">
+    Standard error output from the container process
+  </Tab>
+</Tabs>
+
+### Example Usage
+
+```javascript Data Processing Pipeline
+{
+  "name": "Daily Data ETL",
+  "kind": "CONTAINER",
+  "interval": 1440,  // 24 hours
+  "max_consecutive_job_failures_allowed": 5,
+  "payload": {
+    "timeout": "30m",
+    "image": "myregistry/etl-processor:v2.1",
+    "cmd": ["python", "etl.py", "--mode", "production"],
+    "env": {
+      "DATABASE_URL": "postgresql://db:5432/warehouse",
+      "S3_BUCKET": "data-lake",
+      "LOG_LEVEL": "INFO"
+    }
+  }
+}
+```
+
+<Warning>
+Containers are executed with auto-removal enabled. Ensure your container writes any persistent data to external volumes or services before exiting.
+</Warning>
+
+## Build Status States
+
+All workflows progress through build states during the workflow worker's image preparation phase:
+
+| Status | Description |
+|--------|-------------|
+| `QUEUED` | Workflow creation requested, pending build |
+| `STARTED` | Image pull/validation in progress |
+| `COMPLETED` | Ready for job execution |
+| `FAILED` | Build failed (invalid image, network error) |
+| `CANCELED` | Build was canceled by user |
+
+<Info>
+Only workflows with `COMPLETED` build status can execute jobs. Check the build status before scheduling manual jobs.
+</Info>
+
+## Failure Handling
+
+Both workflow types support automatic failure tracking:
+
+- **max_consecutive_job_failures_allowed**: Minimum 3, maximum 100
+- When threshold is reached, the workflow is automatically terminated
+- Successful job execution resets the consecutive failure counter
+- Terminated workflows stop scheduling new jobs but retain historical data
+
+<Tip>
+Set `max_consecutive_job_failures_allowed` based on your workflow's criticality and expected failure rate. For HEARTBEAT workflows monitoring critical services, use a lower threshold (3-5).
+</Tip>
+
+## Interval Configuration
+
+Workflow intervals determine automatic job scheduling frequency:
+
+- **Minimum**: 1 minute
+- **Maximum**: 10,080 minutes (1 week)
+- **Unit**: Minutes (specified as integer)
+
+```javascript Example Intervals
+{
+  "interval": 5,      // Every 5 minutes
+  "interval": 60,     // Every hour
+  "interval": 1440,   // Daily
+  "interval": 10080   // Weekly
+}
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Job Scheduling" icon="clock" href="/features/job-scheduling">
+    Learn about automatic and manual job triggers
+  </Card>
+  <Card title="Log Streaming" icon="stream" href="/features/log-streaming">
+    Real-time log access with Server-Sent Events
+  </Card>
+</CardGroup>

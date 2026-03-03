@@ -1,0 +1,501 @@
+---
+title: Configuration Reference
+description: Complete reference for environment variables, ports, volumes, and configuration options
+---
+
+This page provides a comprehensive reference for all configuration options used in Chronoverse deployment.
+
+## Environment Variables
+
+### Global Settings
+
+These environment variables are common across multiple services:
+
+| Variable | Description | Default | Required |
+|----------|-------------|---------|----------|
+| `ENV` | Environment mode | `development` or `production` | Yes |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | OpenTelemetry collector endpoint | `http://lgtm:4317` | Yes |
+| `OTEL_EXPORTER_OTLP_PROTOCOL` | OTLP protocol | `grpc` | Yes |
+
+### PostgreSQL Configuration
+
+**Service**: postgres, users-service, workflows-service, jobs-service, notifications-service, analytics-service, scheduling-worker, analytics-processor
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `POSTGRES_HOST` | PostgreSQL hostname | `postgres` |
+| `POSTGRES_USER` | Database user | `primary` |
+| `POSTGRES_PASSWORD` | Database password | `chronoverse` |
+| `POSTGRES_DB` | Database name | `chronoverse` |
+| `POSTGRES_TLS_ENABLED` | Enable TLS | `true` |
+| `POSTGRES_TLS_CA_FILE` | CA certificate path | `certs/ca/ca.crt` |
+| `POSTGRES_TLS_CERT_FILE` | Client certificate path | `certs/clients/client.crt` |
+| `POSTGRES_TLS_KEY_FILE` | Client key path | `certs/clients/client.key` |
+| `POSTGRES_MIN_CONNS` | Minimum connection pool size | `2` |
+
+<Warning>
+  Change `POSTGRES_PASSWORD` before production deployment!
+</Warning>
+
+### ClickHouse Configuration
+
+**Service**: clickhouse, jobs-service, workflow-worker, joblogs-processor
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `CLICKHOUSE_HOSTS` | ClickHouse host:port | `clickhouse:9440` |
+| `CLICKHOUSE_USERNAME` | ClickHouse user | `chronoverse-client` |
+| `CLICKHOUSE_PASSWORD` | ClickHouse password | `chronoverse` |
+| `CLICKHOUSE_TLS_ENABLED` | Enable TLS | `true` |
+| `CLICKHOUSE_TLS_CA_FILE` | CA certificate path | `certs/ca/ca.crt` |
+| `CLICKHOUSE_TLS_CERT_FILE` | Client certificate path | `certs/clients/client.crt` |
+| `CLICKHOUSE_TLS_KEY_FILE` | Client key path | `certs/clients/client.key` |
+
+<Warning>
+  Change `CLICKHOUSE_PASSWORD` before production deployment!
+</Warning>
+
+### Redis Configuration
+
+**Service**: redis, users-service, workflows-service, jobs-service, server, workflow-worker, execution-worker, joblogs-processor
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `REDIS_HOST` | Redis hostname | `redis` |
+| `REDIS_TLS_ENABLED` | Enable TLS | `true` |
+| `REDIS_TLS_CA_FILE` | CA certificate path | `certs/ca/ca.crt` |
+| `REDIS_TLS_CERT_FILE` | Client certificate path | `certs/clients/client.crt` |
+| `REDIS_TLS_KEY_FILE` | Client key path | `certs/clients/client.key` |
+
+### Kafka Configuration
+
+**Service**: kafka, workflows-service, scheduling-worker, workflow-worker, execution-worker, joblogs-processor, analytics-processor
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `KAFKA_BROKERS` | Kafka broker addresses | `kafka:9094` |
+| `KAFKA_TLS_ENABLED` | Enable TLS | `true` |
+| `KAFKA_TLS_CA_FILE` | CA certificate path | `certs/ca/ca.crt` |
+| `KAFKA_TLS_CERT_FILE` | Client certificate path | `certs/clients/client.crt` |
+| `KAFKA_TLS_KEY_FILE` | Client key path | `certs/clients/client.key` |
+| `KAFKA_CONSUMER_GROUP` | Consumer group ID | Service-specific |
+
+#### Kafka Broker Settings
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `KAFKA_KRAFT_MODE` | Enable KRaft mode | `true` |
+| `KAFKA_NODE_ID` | Node ID | `1` |
+| `KAFKA_PROCESS_ROLES` | Process roles | `controller,broker` |
+| `KAFKA_LISTENERS` | Listener endpoints | `SSL://kafka:9094,CONTROLLER://kafka:9093` |
+| `KAFKA_SSL_CLIENT_AUTH` | Client authentication | `required` |
+| `KAFKA_LOG_RETENTION_HOURS` | Log retention | `168` (7 days) |
+| `CLUSTER_ID` | Cluster identifier | `EDofQNqcSCa63isOyHHO9g` |
+
+### Meilisearch Configuration
+
+**Service**: meilisearch, jobs-service, joblogs-processor
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `MEILI_MASTER_KEY` | Master API key | (See below) |
+| `MEILI_SSL_AUTH_PATH` | CA certificate path | `/certs/ca/ca.crt` |
+| `MEILI_SSL_CERT_PATH` | Server certificate path | `/certs/meilisearch/meilisearch.crt` |
+| `MEILI_SSL_KEY_PATH` | Server key path | `/certs/meilisearch/meilisearch.key` |
+| `MEILISEARCH_URI` | Service URI | `https://meilisearch:7700` |
+| `MEILISEARCH_TLS_ENABLED` | Enable TLS | `true` |
+| `MEILISEARCH_TLS_CA_FILE` | CA certificate path | `certs/ca/ca.crt` |
+| `MEILISEARCH_TLS_CERT_FILE` | Client certificate path | `certs/clients/client.crt` |
+| `MEILISEARCH_TLS_KEY_FILE` | Client key path | `certs/clients/client.key` |
+
+<Warning>
+  **Default Master Key**: `35b09c3c7b1001ed1fbed7db29a155d0201ab22d527b41bfba9003da7bb3b404`
+  
+  Generate a new key for production:
+  ```bash
+  openssl rand -hex 32
+  ```
+</Warning>
+
+### gRPC Service Configuration
+
+All gRPC services share this configuration pattern:
+
+| Variable | Description | Service-Specific Port |
+|----------|-------------|-----------------------|
+| `GRPC_PORT` | gRPC server port | See table below |
+| `GRPC_TLS_ENABLED` | Enable TLS | `true` |
+| `GRPC_TLS_CA_FILE` | CA certificate path | `certs/ca/ca.crt` |
+| `GRPC_TLS_CERT_FILE` | Server certificate path | `certs/{service}/{service}.crt` |
+| `GRPC_TLS_KEY_FILE` | Server key path | `certs/{service}/{service}.key` |
+
+#### gRPC Service Ports
+
+| Service | Port | Environment Variable |
+|---------|------|----------------------|
+| users-service | 50051 | `GRPC_PORT=50051` |
+| workflows-service | 50052 | `GRPC_PORT=50052` |
+| jobs-service | 50053 | `GRPC_PORT=50053` |
+| notifications-service | 50054 | `GRPC_PORT=50054` |
+| analytics-service | 50055 | `GRPC_PORT=50055` |
+
+### Service-to-Service Communication
+
+**Service**: server, workflow-worker, execution-worker, notifications-service
+
+Each service that calls other gRPC services needs these variables:
+
+```bash
+# Example: server service connecting to users-service
+USERS_SERVICE_HOST=users-service
+USERS_SERVICE_PORT=50051
+USERS_SERVICE_TLS_ENABLED=true
+USERS_SERVICE_TLS_CA_FILE=certs/ca/ca.crt
+
+# Client certificates for mTLS
+CLIENT_TLS_CERT_FILE=certs/clients/client.crt
+CLIENT_TLS_KEY_FILE=certs/clients/client.key
+```
+
+### Server Configuration
+
+**Service**: server
+
+| Variable | Description | Default (Dev) | Default (Prod) |
+|----------|-------------|---------------|----------------|
+| `SERVER_HOST` | Bind address | `0.0.0.0` | `0.0.0.0` |
+| `SERVER_ALLOWED_ORIGINS` | CORS origins | (not set) | `http://0.0.0.0:80,` |
+
+### Dashboard Configuration
+
+**Service**: dashboard (development only)
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `NEXT_PUBLIC_API_URL` | API endpoint | `http://localhost:8080` |
+
+### Worker Configuration
+
+**Service**: workflow-worker, execution-worker
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `DOCKER_HOST` | Docker daemon address | `tcp://docker-proxy:2375` |
+
+## Port Mappings
+
+### Development Environment
+
+All services expose ports in development:
+
+<CodeGroup>
+```yaml Databases
+postgres:       5432:5432
+clickhouse:     9440:9440
+redis:          6379:6379
+meilisearch:    7700:7700
+kafka:          9094:9094, 9093:9093
+```
+
+```yaml Services
+users-service:         50051:50051
+workflows-service:     50052:50052
+jobs-service:          50053:50053
+notifications-service: 50054:50054
+analytics-service:     50055:50055
+server:                8080:8080
+dashboard:             3001:3000
+```
+
+```yaml Observability
+lgtm:  4317:4317  # OTLP
+       3000:3000  # Grafana
+```
+</CodeGroup>
+
+### Production Environment
+
+Only nginx is exposed in production:
+
+```yaml
+nginx:  80:80    # HTTP entry point
+lgtm:   3000:3000  # Grafana (internal)
+```
+
+All other services communicate internally on the `chronoverse` network.
+
+## Volume Mounts
+
+### Persistent Data Volumes
+
+| Volume | Mount Point | Purpose |
+|--------|-------------|----------|
+| `postgres` | `/var/lib/postgresql` | PostgreSQL data |
+| `clickhouse` | `/var/lib/clickhouse` | ClickHouse data |
+| `redis` | `/data` | Redis persistence |
+| `meilisearch` | `/meili_data` | Meilisearch indices |
+| `kafka` | `/var/lib/kafka/data` | Kafka logs |
+| `lgtm` | `/data` | Grafana/LGTM data |
+| `otel-lgtm` | `/otel-lgtm` | OTLP collector data |
+
+### Certificate Mounts
+
+All services mount certificates:
+
+```yaml
+volumes:
+  - ./certs:/certs:ro  # Read-only
+```
+
+The `init-certs` service mounts read-write:
+
+```yaml
+volumes:
+  - ./certs:/certs:rw  # Read-write for generation
+```
+
+### Configuration Mounts
+
+```yaml
+# PostgreSQL configuration
+postgres:
+  volumes:
+    - ./certs/postgres/config:/etc/postgresql
+
+# ClickHouse configuration
+clickhouse:
+  volumes:
+    - ./certs/clickhouse/config:/etc/clickhouse-server/conf.d:ro
+    - ./certs/clickhouse/clients/config.xml:/etc/clickhouse-client/config.xml:ro
+```
+
+## Health Check Configuration
+
+### PostgreSQL Health Check
+
+```yaml
+healthcheck:
+  test: |
+    psql 'host=0.0.0.0 user=primary dbname=postgres 
+         sslmode=verify-full sslrootcert=/certs/ca/ca.crt 
+         sslcert=/certs/clients/client.crt 
+         sslkey=/certs/clients/client.key' -c 'SELECT 1;'
+  interval: 10s
+  timeout: 5s
+  retries: 5
+  start_period: 5s
+```
+
+### ClickHouse Health Check
+
+```yaml
+healthcheck:
+  test: |
+    clickhouse-client --secure --host=localhost --port=9440 
+                      --user=chronoverse-client --password=chronoverse 
+                      --query 'SELECT 1'
+  interval: 10s
+  timeout: 5s
+  retries: 10
+  start_period: 5s
+```
+
+### Redis Health Check
+
+```yaml
+healthcheck:
+  test: |
+    redis-cli --tls --cert /certs/clients/client.crt 
+              --key /certs/clients/client.key 
+              --cacert /certs/ca/ca.crt -p 6379 ping | grep PONG
+  interval: 10s
+  timeout: 5s
+  retries: 10
+  start_period: 5s
+```
+
+### gRPC Service Health Check
+
+```yaml
+healthcheck:
+  test: |
+    if [ "$$GRPC_TLS_ENABLED" = "true" ]; then
+      /bin/grpc-health-probe -addr=localhost:50051 \
+        -connect-timeout 250ms -rpc-timeout 250ms \
+        -tls -tls-ca-cert certs/ca/ca.crt \
+        -tls-client-cert certs/users-service/users-service.crt \
+        -tls-client-key certs/users-service/users-service.key \
+        -tls-server-name=users-service \
+        -rpc-header=Audience:grpc_probe \
+        -rpc-header=Role:admin
+    fi
+  interval: 10s
+  timeout: 5s
+  retries: 5
+  start_period: 30s
+```
+
+## Certificate Structure
+
+The `init-certs` service generates the following certificate structure:
+
+```
+certs/
+├── auth.ed              # ED25519 private key for JWT
+├── auth.ed.pub          # ED25519 public key
+├── ca/
+│   ├── ca.crt          # Root CA certificate
+│   └── ca.key          # Root CA key
+├── clients/
+│   ├── client.crt      # Client certificate for mTLS
+│   └── client.key      # Client private key
+├── postgres/
+│   ├── postgres.crt    # PostgreSQL server certificate
+│   ├── postgres.key    # PostgreSQL server key
+│   └── config/
+│       ├── postgresql.conf
+│       └── pg_hba.conf
+├── clickhouse/
+│   ├── clickhouse.crt  # ClickHouse server certificate
+│   ├── clickhouse.key  # ClickHouse server key
+│   ├── config/
+│   │   ├── tls.xml     # TLS configuration
+│   │   └── users.xml   # User configuration
+│   └── clients/
+│       ├── client.crt  # ClickHouse client certificate
+│       ├── client.key  # ClickHouse client key
+│       └── config.xml  # Client configuration
+├── redis/
+│   ├── redis.crt       # Redis server certificate
+│   └── redis.key       # Redis server key
+├── kafka/
+│   ├── kafka.crt       # Kafka certificate
+│   ├── kafka.key       # Kafka key
+│   ├── kafka.keystore.jks
+│   ├── kafka.truststore.jks
+│   └── *_creds.txt     # Keystore passwords
+├── meilisearch/
+│   ├── meilisearch.crt # Meilisearch certificate
+│   └── meilisearch.key # Meilisearch key
+└── [service-name]/
+    ├── [service].crt   # Service-specific certificate
+    └── [service].key   # Service-specific key
+```
+
+## Docker Compose Profiles
+
+### Development Build Arguments
+
+```yaml
+build:
+  context: .
+  dockerfile: Dockerfile
+  args:
+    - VERSION=v0.0.1
+    - NAME=users-service
+    - PRIVATE_KEY_PATH=certs/auth.ed
+    - PUBLIC_KEY_PATH=certs/auth.ed.pub
+```
+
+### Production Images
+
+```yaml
+image: ghcr.io/hitesh22rana/chronoverse/users-service:latest
+```
+
+## Resource Limits (Production)
+
+### YAML Anchors
+
+```yaml
+x-limits:
+  database-limits: &database-limits
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 1G
+        reservations:
+          cpus: "0.5"
+          memory: 512M
+
+  services-limit: &services-limit
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 256M
+        reservations:
+          cpus: "0.1"
+          memory: 128M
+
+  low-resources-workers-limit: &low-resources-workers-limit
+    deploy:
+      replicas: 2
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 2G
+        reservations:
+          cpus: "0.25"
+          memory: 1G
+
+  high-resources-workers-limit: &high-resources-workers-limit
+    deploy:
+      replicas: 2
+      resources:
+        limits:
+          cpus: "2"
+          memory: 4G
+        reservations:
+          cpus: "1"
+          memory: 2G
+```
+
+### Usage
+
+```yaml
+services:
+  postgres:
+    <<: *database-limits
+    # ... rest of config
+
+  users-service:
+    <<: *services-limit
+    # ... rest of config
+
+  execution-worker:
+    <<: *high-resources-workers-limit
+    # ... rest of config
+```
+
+## Network Configuration
+
+```yaml
+networks:
+  chronoverse:
+    name: chronoverse
+    driver: bridge
+```
+
+All services connect to the `chronoverse` bridge network for isolated communication.
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Development Guide" icon="code" href="/deployment/development">
+    Set up development environment
+  </Card>
+  
+  <Card title="Production Guide" icon="server" href="/deployment/production">
+    Deploy to production
+  </Card>
+  
+  <Card title="Security Best Practices" icon="shield" href="/operations/security">
+    Secure your deployment
+  </Card>
+  
+  <Card title="Troubleshooting" icon="wrench" href="/operations/troubleshooting">
+    Common issues and solutions
+  </Card>
+</CardGroup>

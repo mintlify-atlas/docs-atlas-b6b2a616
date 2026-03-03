@@ -1,0 +1,437 @@
+---
+title: Production Deployment
+description: Deploy Chronoverse to production with compose.prod.yaml
+---
+
+The production configuration is optimized for stability, performance, and scalability. It uses pre-built images from GitHub Container Registry and implements resource management and scaling.
+
+## Configuration Overview
+
+The `compose.prod.yaml` configuration includes:
+
+- **Pre-built images** - Uses published images from `ghcr.io/hitesh22rana/chronoverse`
+- **Resource limits** - CPU and memory constraints for stability
+- **Horizontal scaling** - Multiple replicas for worker services
+- **Nginx reverse proxy** - Single entry point on port 80
+- **Production security** - No exposed internal ports
+- **Optimized settings** - Production-grade configurations
+
+## Resource Allocation
+
+The production compose file defines three resource profiles:
+
+### Database Services
+- **Limits**: 1 CPU, 1 GB RAM
+- **Reservations**: 0.5 CPU, 512 MB RAM
+- **Services**: PostgreSQL, ClickHouse, Redis, Kafka
+
+### Application Services
+- **Limits**: 0.25 CPU, 256 MB RAM
+- **Reservations**: 0.1 CPU, 128 MB RAM
+- **Services**: users-service, workflows-service, jobs-service, notifications-service, analytics-service, server
+
+### Worker Services
+
+**Low-Resource Workers** (2 replicas each):
+- **Limits**: 0.5 CPU, 2 GB RAM
+- **Reservations**: 0.25 CPU, 1 GB RAM
+- **Workers**: scheduling-worker, workflow-worker, joblogs-processor, analytics-processor
+
+**High-Resource Workers** (2 replicas each):
+- **Limits**: 2 CPU, 4 GB RAM
+- **Reservations**: 1 CPU, 2 GB RAM
+- **Workers**: execution-worker
+
+## Deploying to Production
+
+<Steps>
+  <Step title="Prepare the Server">
+    Ensure your production server meets requirements:
+    
+    - Docker Engine 20.10+
+    - Docker Compose V2
+    - 8+ CPU cores
+    - 16+ GB RAM
+    - 100+ GB disk space
+    
+    ```bash
+    # Update system
+    sudo apt update && sudo apt upgrade -y
+    
+    # Install Docker
+    curl -fsSL https://get.docker.com -o get-docker.sh
+    sudo sh get-docker.sh
+    
+    # Verify installation
+    docker --version
+    docker compose version
+    ```
+  </Step>
+
+  <Step title="Clone the Repository">
+    ```bash
+    git clone https://github.com/your-org/chronoverse.git
+    cd chronoverse
+    ```
+  </Step>
+
+  <Step title="Configure Environment">
+    <Warning>
+      Change default passwords before deploying to production!
+    </Warning>
+    
+    Edit `compose.prod.yaml` and update:
+    
+    - Database passwords (PostgreSQL, ClickHouse)
+    - Meilisearch master key
+    - Server allowed origins
+    - Any other environment-specific settings
+  </Step>
+
+  <Step title="Start the Stack">
+    ```bash
+    # Pull latest images
+    docker compose -f compose.prod.yaml pull
+    
+    # Start all services
+    docker compose -f compose.prod.yaml up -d
+    
+    # Monitor startup progress
+    docker compose -f compose.prod.yaml logs -f
+    ```
+  </Step>
+
+  <Step title="Verify Deployment">
+    ```bash
+    # Check service health
+    docker compose -f compose.prod.yaml ps
+    
+    # Verify all services are healthy
+    docker ps --filter "health=healthy" | wc -l
+    ```
+  </Step>
+
+  <Step title="Access the Application">
+    The application is now available on port 80:
+    
+    - **Web Interface**: http://your-server-ip
+    - **API**: http://your-server-ip/api/
+    
+    <Note>
+      Configure DNS and TLS termination at your load balancer or reverse proxy.
+    </Note>
+  </Step>
+</Steps>
+
+## Nginx Reverse Proxy
+
+The production deployment includes an nginx reverse proxy that routes traffic:
+
+### Routing Rules
+
+- **`/`** → Dashboard (port 3000)
+- **`/api/`** → Server API (port 8080)
+- **`/api/workflows/{id}/jobs/{id}/events`** → Server-Sent Events (SSE) with special configuration
+
+### SSE Configuration
+
+The nginx proxy includes optimized settings for Server-Sent Events:
+
+```nginx
+# SSE specific settings
+proxy_buffering off;
+proxy_cache off;
+proxy_set_header Connection "";
+proxy_http_version 1.1;
+chunked_transfer_encoding off;
+
+# Prevent timeouts for long-running connections
+proxy_read_timeout 24h;
+proxy_send_timeout 24h;
+```
+
+## Scaling Workers
+
+The production configuration scales workers for high availability:
+
+### Current Scaling
+
+- **scheduling-worker**: 2 replicas
+- **workflow-worker**: 2 replicas
+- **execution-worker**: 2 replicas
+- **joblogs-processor**: 2 replicas
+- **analytics-processor**: 2 replicas
+
+### Adjusting Replicas
+
+To scale workers up or down, edit `compose.prod.yaml`:
+
+```yaml
+workflow-worker:
+  deploy:
+    replicas: 4  # Increase from 2 to 4
+```
+
+Then apply the change:
+
+```bash
+docker compose -f compose.prod.yaml up -d --scale workflow-worker=4
+```
+
+## Security Considerations
+
+### Change Default Credentials
+
+<Warning>
+  **CRITICAL**: Change all default passwords before production deployment!
+</Warning>
+
+Update these values in `compose.prod.yaml`:
+
+```yaml
+environment:
+  POSTGRES_PASSWORD: your-secure-password-here
+  CLICKHOUSE_PASSWORD: your-secure-password-here
+  MEILI_MASTER_KEY: your-secure-master-key-here
+```
+
+### Network Isolation
+
+- All services run on isolated `chronoverse` network
+- Only nginx is exposed (port 80)
+- Internal services use mTLS
+
+### TLS Certificates
+
+The `init-certs` service generates:
+
+- Self-signed CA certificate
+- Service certificates for mTLS
+- Client certificates for database access
+- ED25519 keypair for JWT authentication
+
+<Note>
+  For production, consider using proper CA-signed certificates or integrate with your certificate management system.
+</Note>
+
+### Docker Socket Access
+
+The `docker-proxy` service provides controlled access to Docker socket:
+
+- Read-only permissions for most operations
+- Limited to specific API endpoints
+- Used by execution-worker and workflow-worker
+
+## Monitoring Production
+
+### Service Health
+
+```bash
+# Check all service health
+docker compose -f compose.prod.yaml ps
+
+# View unhealthy services
+docker ps --filter "health=unhealthy"
+
+# Check specific service
+docker inspect --format='{{.State.Health.Status}}' server
+```
+
+### Resource Usage
+
+```bash
+# View resource consumption
+docker stats
+
+# View specific service stats
+docker stats server users-service workflows-service
+```
+
+### Logs
+
+<CodeGroup>
+```bash All Services
+docker compose -f compose.prod.yaml logs -f
+```
+
+```bash Specific Service
+docker compose -f compose.prod.yaml logs -f --tail=100 server
+```
+
+```bash Error Logs Only
+docker compose -f compose.prod.yaml logs -f | grep -i error
+```
+</CodeGroup>
+
+### LGTM Observability
+
+Access Grafana for detailed metrics and traces:
+
+```bash
+# Port forward Grafana to localhost
+docker port lgtm 3000
+
+# Access via SSH tunnel if needed
+ssh -L 3000:localhost:3000 user@your-server
+```
+
+Then open http://localhost:3000 in your browser.
+
+## Backup and Restore
+
+### Backing Up Data
+
+<CodeGroup>
+```bash PostgreSQL
+# Backup PostgreSQL
+docker exec postgres pg_dump \
+  "host=localhost user=primary dbname=chronoverse \
+   sslmode=verify-full \
+   sslrootcert=/certs/ca/ca.crt \
+   sslcert=/certs/clients/client.crt \
+   sslkey=/certs/clients/client.key" \
+  > chronoverse-$(date +%Y%m%d).sql
+```
+
+```bash Volumes
+# Backup all volumes
+docker run --rm \
+  -v chronoverse_postgres:/data/postgres \
+  -v chronoverse_clickhouse:/data/clickhouse \
+  -v chronoverse_redis:/data/redis \
+  -v $(pwd)/backup:/backup \
+  alpine tar czf /backup/volumes-$(date +%Y%m%d).tar.gz /data/
+```
+</CodeGroup>
+
+### Restoring Data
+
+```bash
+# Stop services
+docker compose -f compose.prod.yaml down
+
+# Restore volumes
+docker run --rm \
+  -v chronoverse_postgres:/data/postgres \
+  -v chronoverse_clickhouse:/data/clickhouse \
+  -v chronoverse_redis:/data/redis \
+  -v $(pwd)/backup:/backup \
+  alpine tar xzf /backup/volumes-20260303.tar.gz -C /
+
+# Start services
+docker compose -f compose.prod.yaml up -d
+```
+
+## Updating Services
+
+<Steps>
+  <Step title="Pull Latest Images">
+    ```bash
+    docker compose -f compose.prod.yaml pull
+    ```
+  </Step>
+
+  <Step title="Stop Services Gracefully">
+    ```bash
+    docker compose -f compose.prod.yaml down
+    ```
+  </Step>
+
+  <Step title="Start with New Images">
+    ```bash
+    docker compose -f compose.prod.yaml up -d
+    ```
+  </Step>
+
+  <Step title="Verify Update">
+    ```bash
+    # Check service health
+    docker compose -f compose.prod.yaml ps
+    
+    # View updated image tags
+    docker compose -f compose.prod.yaml images
+    ```
+  </Step>
+</Steps>
+
+## Troubleshooting Production
+
+### Service Won't Start
+
+```bash
+# Check service logs
+docker compose -f compose.prod.yaml logs <service-name>
+
+# Check resource constraints
+docker stats <service-name>
+
+# Inspect service configuration
+docker inspect <service-name>
+```
+
+### High Resource Usage
+
+```bash
+# Identify resource-hungry services
+docker stats --no-stream --format "table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}"
+
+# Adjust resource limits in compose.prod.yaml
+# Then recreate services
+docker compose -f compose.prod.yaml up -d --force-recreate
+```
+
+### Database Connection Issues
+
+```bash
+# Verify database health
+docker compose -f compose.prod.yaml ps postgres clickhouse redis
+
+# Test database connectivity
+docker exec server ping postgres
+
+# Check certificate validity
+docker exec server ls -la /certs/
+```
+
+### Worker Not Processing Jobs
+
+```bash
+# Check worker logs
+docker compose -f compose.prod.yaml logs -f workflow-worker
+
+# Verify Kafka connectivity
+docker compose -f compose.prod.yaml logs kafka
+
+# Restart workers
+docker compose -f compose.prod.yaml restart workflow-worker execution-worker
+```
+
+## High Availability
+
+For production high availability:
+
+1. **Deploy across multiple hosts** - Use Docker Swarm or Kubernetes
+2. **External load balancer** - Route traffic across multiple nginx instances
+3. **Managed databases** - Consider using managed PostgreSQL, Redis, and ClickHouse
+4. **Persistent volumes** - Use network storage or managed volume solutions
+5. **Certificate management** - Integrate with Vault or cert-manager
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Configuration Reference" icon="sliders" href="/deployment/configuration">
+    Complete environment variable reference
+  </Card>
+  
+  <Card title="Monitoring Setup" icon="chart-line" href="/observability/overview">
+    Set up production monitoring
+  </Card>
+  
+  <Card title="Backup Strategy" icon="floppy-disk" href="/operations/backup">
+    Implement backup and disaster recovery
+  </Card>
+  
+  <Card title="Security Hardening" icon="shield" href="/operations/security">
+    Production security best practices
+  </Card>
+</CardGroup>

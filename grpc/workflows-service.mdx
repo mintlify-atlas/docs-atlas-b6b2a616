@@ -1,0 +1,518 @@
+---
+title: 'Workflows Service'
+description: 'Workflow creation, management, and lifecycle operations'
+---
+
+## Overview
+
+The Workflows Service manages the complete lifecycle of workflows including creation, updates, termination, and deletion.
+
+**Service Details:**
+- **Package**: `workflows`
+- **Port**: `50052`
+- **Proto**: `proto/workflows/workflows.proto`
+
+## Service Definition
+
+```proto
+service WorkflowsService {
+    rpc CreateWorkflow(CreateWorkflowRequest) returns (CreateWorkflowResponse) {}
+    rpc UpdateWorkflow(UpdateWorkflowRequest) returns (UpdateWorkflowResponse) {}
+    rpc UpdateWorkflowBuildStatus(UpdateWorkflowBuildStatusRequest) returns(UpdateWorkflowBuildStatusResponse) {}
+    rpc GetWorkflow(GetWorkflowRequest) returns (GetWorkflowResponse) {}
+    rpc GetWorkflowByID(GetWorkflowByIDRequest) returns (GetWorkflowByIDResponse){}
+    rpc IncrementWorkflowConsecutiveJobFailuresCount(IncrementWorkflowConsecutiveJobFailuresCountRequest) returns (IncrementWorkflowConsecutiveJobFailuresCountResponse) {}
+    rpc ResetWorkflowConsecutiveJobFailuresCount(ResetWorkflowConsecutiveJobFailuresCountRequest) returns (ResetWorkflowConsecutiveJobFailuresCountResponse) {}
+    rpc TerminateWorkflow(TerminateWorkflowRequest) returns(TerminateWorkflowResponse) {}
+    rpc DeleteWorkflow(DeleteWorkflowRequest) returns (DeleteWorkflowResponse) {}
+    rpc ListWorkflows(ListWorkflowsRequest) returns (ListWorkflowsResponse) {}
+}
+```
+
+## RPC Methods
+
+### CreateWorkflow
+
+Create a new workflow.
+
+**Request:**
+
+<ParamField path="user_id" type="string" required>
+  ID of the user creating the workflow
+</ParamField>
+
+<ParamField path="name" type="string" required>
+  Name of the workflow
+</ParamField>
+
+<ParamField path="payload" type="string" required>
+  JSON string containing workflow configuration
+</ParamField>
+
+<ParamField path="kind" type="string" required>
+  Type of workflow (e.g., "http", "script", "docker")
+</ParamField>
+
+<ParamField path="interval" type="int32" required>
+  Execution interval in minutes
+</ParamField>
+
+<ParamField path="max_consecutive_job_failures_allowed" type="int32" required>
+  Maximum consecutive failures before workflow termination
+</ParamField>
+
+**Response:**
+
+<ResponseField name="id" type="string">
+  Unique identifier of the created workflow
+</ResponseField>
+
+**Example:**
+
+```go
+req := &workflows.CreateWorkflowRequest{
+    UserId:                           "user-123",
+    Name:                             "Daily Health Check",
+    Payload:                          `{"url": "https://api.example.com/health"}`,
+    Kind:                             "http",
+    Interval:                         60,
+    MaxConsecutiveJobFailuresAllowed: 3,
+}
+
+resp, err := client.CreateWorkflow(ctx, req)
+if err != nil {
+    log.Fatal(err)
+}
+
+fmt.Printf("Workflow created: %s\n", resp.Id)
+```
+
+---
+
+### UpdateWorkflow
+
+Update an existing workflow's configuration.
+
+**Request:**
+
+<ParamField path="id" type="string" required>
+  Workflow ID to update
+</ParamField>
+
+<ParamField path="user_id" type="string" required>
+  User ID (for authorization)
+</ParamField>
+
+<ParamField path="name" type="string" required>
+  Updated workflow name
+</ParamField>
+
+<ParamField path="payload" type="string" required>
+  Updated JSON configuration
+</ParamField>
+
+<ParamField path="interval" type="int32" required>
+  Updated interval in minutes
+</ParamField>
+
+<ParamField path="max_consecutive_job_failures_allowed" type="int32" required>
+  Updated failure threshold
+</ParamField>
+
+**Response:**
+
+Empty response on success.
+
+**Example:**
+
+```go
+req := &workflows.UpdateWorkflowRequest{
+    Id:                               "workflow-456",
+    UserId:                           "user-123",
+    Name:                             "Hourly Health Check",
+    Payload:                          `{"url": "https://api.example.com/health", "timeout": 30}`,
+    Interval:                         60,
+    MaxConsecutiveJobFailuresAllowed: 5,
+}
+
+_, err := client.UpdateWorkflow(ctx, req)
+if err != nil {
+    log.Fatal(err)
+}
+```
+
+---
+
+### UpdateWorkflowBuildStatus
+
+<Note>
+**Internal API** - Not exposed to public. Used for inter-service communication.
+</Note>
+
+Update the build status of a workflow.
+
+**Request:**
+
+<ParamField path="id" type="string" required>
+  Workflow ID
+</ParamField>
+
+<ParamField path="user_id" type="string" required>
+  User ID
+</ParamField>
+
+<ParamField path="build_status" type="string" required>
+  Build status (e.g., "pending", "building", "success", "failed")
+</ParamField>
+
+**Response:**
+
+Empty response on success.
+
+---
+
+### GetWorkflow
+
+Retrieve workflow details by ID and user ID.
+
+**Request:**
+
+<ParamField path="id" type="string" required>
+  Workflow ID
+</ParamField>
+
+<ParamField path="user_id" type="string" required>
+  User ID (for authorization)
+</ParamField>
+
+**Response:**
+
+<ResponseField name="id" type="string">
+  Workflow ID
+</ResponseField>
+
+<ResponseField name="name" type="string">
+  Workflow name
+</ResponseField>
+
+<ResponseField name="payload" type="string">
+  JSON configuration
+</ResponseField>
+
+<ResponseField name="kind" type="string">
+  Workflow type
+</ResponseField>
+
+<ResponseField name="build_status" type="string">
+  Current build status
+</ResponseField>
+
+<ResponseField name="interval" type="int32">
+  Execution interval in minutes
+</ResponseField>
+
+<ResponseField name="consecutive_job_failures_count" type="int32">
+  Current consecutive failure count
+</ResponseField>
+
+<ResponseField name="max_consecutive_job_failures_allowed" type="int32">
+  Maximum allowed consecutive failures
+</ResponseField>
+
+<ResponseField name="created_at" type="string">
+  Creation timestamp
+</ResponseField>
+
+<ResponseField name="updated_at" type="string">
+  Last update timestamp
+</ResponseField>
+
+<ResponseField name="terminated_at" type="string">
+  Termination timestamp (if terminated)
+</ResponseField>
+
+**Example:**
+
+```go
+req := &workflows.GetWorkflowRequest{
+    Id:     "workflow-456",
+    UserId: "user-123",
+}
+
+resp, err := client.GetWorkflow(ctx, req)
+if err != nil {
+    log.Fatal(err)
+}
+
+fmt.Printf("Workflow: %s (Status: %s)\n", resp.Name, resp.BuildStatus)
+```
+
+---
+
+### GetWorkflowByID
+
+<Note>
+**Internal API** - Not exposed to public. Used for inter-service communication.
+</Note>
+
+Retrieve workflow by ID only (no user_id required).
+
+**Request:**
+
+<ParamField path="id" type="string" required>
+  Workflow ID
+</ParamField>
+
+**Response:**
+
+Same as GetWorkflow response, plus `user_id` field.
+
+---
+
+### IncrementWorkflowConsecutiveJobFailuresCount
+
+<Note>
+**Internal API** - Not exposed to public. Called when jobs fail.
+</Note>
+
+Increment the consecutive job failures counter.
+
+**Request:**
+
+<ParamField path="id" type="string" required>
+  Workflow ID
+</ParamField>
+
+<ParamField path="user_id" type="string" required>
+  User ID
+</ParamField>
+
+**Response:**
+
+<ResponseField name="threshold_reached" type="bool">
+  True if max failures threshold was reached
+</ResponseField>
+
+---
+
+### ResetWorkflowConsecutiveJobFailuresCount
+
+<Note>
+**Internal API** - Not exposed to public. Called when jobs succeed.
+</Note>
+
+Reset the consecutive job failures counter to zero.
+
+**Request:**
+
+<ParamField path="id" type="string" required>
+  Workflow ID
+</ParamField>
+
+<ParamField path="user_id" type="string" required>
+  User ID
+</ParamField>
+
+**Response:**
+
+Empty response on success.
+
+---
+
+### TerminateWorkflow
+
+Terminate a workflow (stop scheduling new jobs).
+
+**Request:**
+
+<ParamField path="id" type="string" required>
+  Workflow ID
+</ParamField>
+
+<ParamField path="user_id" type="string" required>
+  User ID
+</ParamField>
+
+**Response:**
+
+Empty response on success.
+
+**Example:**
+
+```go
+req := &workflows.TerminateWorkflowRequest{
+    Id:     "workflow-456",
+    UserId: "user-123",
+}
+
+_, err := client.TerminateWorkflow(ctx, req)
+if err != nil {
+    log.Fatal(err)
+}
+
+fmt.Println("Workflow terminated")
+```
+
+---
+
+### DeleteWorkflow
+
+Permanently delete a workflow.
+
+**Request:**
+
+<ParamField path="id" type="string" required>
+  Workflow ID
+</ParamField>
+
+<ParamField path="user_id" type="string" required>
+  User ID
+</ParamField>
+
+**Response:**
+
+Empty response on success.
+
+**Example:**
+
+```go
+req := &workflows.DeleteWorkflowRequest{
+    Id:     "workflow-456",
+    UserId: "user-123",
+}
+
+_, err := client.DeleteWorkflow(ctx, req)
+if err != nil {
+    log.Fatal(err)
+}
+
+fmt.Println("Workflow deleted")
+```
+
+---
+
+### ListWorkflows
+
+List all workflows for a user with optional filters.
+
+**Request:**
+
+<ParamField path="user_id" type="string" required>
+  User ID
+</ParamField>
+
+<ParamField path="cursor" type="string">
+  Pagination cursor (empty for first page)
+</ParamField>
+
+<ParamField path="filters" type="ListWorkflowsFilters">
+  Optional filters
+</ParamField>
+
+**ListWorkflowsFilters:**
+
+<ParamField path="query" type="string">
+  Search query string
+</ParamField>
+
+<ParamField path="kind" type="string">
+  Filter by workflow type
+</ParamField>
+
+<ParamField path="build_status" type="string">
+  Filter by build status
+</ParamField>
+
+<ParamField path="is_terminated" type="bool">
+  Filter terminated workflows
+</ParamField>
+
+<ParamField path="interval_min" type="int32">
+  Minimum interval filter
+</ParamField>
+
+<ParamField path="interval_max" type="int32">
+  Maximum interval filter
+</ParamField>
+
+**Response:**
+
+<ResponseField name="workflows" type="WorkflowsByUserIDResponse[]">
+  Array of workflow objects
+</ResponseField>
+
+<ResponseField name="cursor" type="string">
+  Cursor for next page (empty if no more pages)
+</ResponseField>
+
+**Example:**
+
+```go
+req := &workflows.ListWorkflowsRequest{
+    UserId: "user-123",
+    Cursor: "",
+    Filters: &workflows.ListWorkflowsFilters{
+        Kind:        "http",
+        BuildStatus: "success",
+    },
+}
+
+resp, err := client.ListWorkflows(ctx, req)
+if err != nil {
+    log.Fatal(err)
+}
+
+for _, wf := range resp.Workflows {
+    fmt.Printf("Workflow: %s (ID: %s)\n", wf.Name, wf.Id)
+}
+```
+
+## Connection Example
+
+```go
+package main
+
+import (
+    "context"
+    "log"
+
+    "google.golang.org/grpc"
+    "google.golang.org/grpc/credentials/insecure"
+    pb "github.com/hitesh22rana/chronoverse/pkg/proto/go/workflows"
+)
+
+func main() {
+    conn, err := grpc.Dial(
+        "localhost:50052",
+        grpc.WithTransportCredentials(insecure.NewCredentials()),
+    )
+    if err != nil {
+        log.Fatalf("Failed to connect: %v", err)
+    }
+    defer conn.Close()
+
+    client := pb.NewWorkflowsServiceClient(conn)
+    ctx := context.Background()
+
+    // Create workflow
+    resp, err := client.CreateWorkflow(ctx, &pb.CreateWorkflowRequest{
+        UserId:                           "user-123",
+        Name:                             "API Monitor",
+        Payload:                          `{"url": "https://api.example.com"}`,
+        Kind:                             "http",
+        Interval:                         30,
+        MaxConsecutiveJobFailuresAllowed: 3,
+    })
+    if err != nil {
+        log.Fatalf("CreateWorkflow failed: %v", err)
+    }
+
+    log.Printf("Created workflow: %s", resp.Id)
+}
+```
+
+## Related Services
+
+- [Jobs Service](/grpc/jobs-service) - Executes workflow jobs
+- [Users Service](/grpc/users-service) - User authentication
+- [Analytics Service](/grpc/analytics-service) - Workflow metrics

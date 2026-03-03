@@ -1,0 +1,181 @@
+---
+title: 'REST API Overview'
+description: 'Learn about the Chronoverse REST API, including base URLs, response formats, error handling, and rate limits'
+---
+
+## Base URL
+
+The Chronoverse API is available at:
+
+```
+http://localhost:8080
+```
+
+<Note>
+  The base URL will vary depending on your deployment environment. In production, use your configured host URL with HTTPS.
+</Note>
+
+## Response Format
+
+All API responses are returned in JSON format with appropriate HTTP status codes.
+
+### Successful Response
+
+Successful requests return data in JSON format:
+
+```json
+{
+  "id": "workflow_123",
+  "name": "My Workflow",
+  "status": "ACTIVE",
+  "created_at": "2026-03-03T10:00:00Z"
+}
+```
+
+### HTTP Status Codes
+
+The API uses standard HTTP status codes:
+
+| Status Code | Description |
+|------------|-------------|
+| `200` | Success - Request completed successfully |
+| `201` | Created - Resource created successfully |
+| `204` | No Content - Request succeeded with no response body |
+| `400` | Bad Request - Invalid request parameters |
+| `401` | Unauthorized - Authentication required or failed |
+| `403` | Forbidden - Insufficient permissions |
+| `404` | Not Found - Resource does not exist |
+| `409` | Conflict - Resource already exists |
+| `412` | Precondition Failed - Required precondition not met |
+| `429` | Too Many Requests - Rate limit exceeded |
+| `500` | Internal Server Error - Server error occurred |
+| `501` | Not Implemented - Endpoint not implemented |
+| `503` | Service Unavailable - Service temporarily unavailable |
+| `504` | Gateway Timeout - Request timeout |
+
+## Error Handling
+
+When an error occurs, the API returns an appropriate HTTP status code along with an error message in plain text format.
+
+### Error Response Format
+
+```
+failed to create workflow
+```
+
+<Warning>
+  Error messages are returned as plain text, not JSON. Always check the HTTP status code to determine the type of error.
+</Warning>
+
+### Common Error Scenarios
+
+<AccordionGroup>
+  <Accordion title="Authentication Errors (401)">
+    - `session not found` - No session cookie provided
+    - `invalid token` - JWT token is invalid or malformed
+    - `failed to decrypt session` - Session cookie is corrupted
+  </Accordion>
+
+  <Accordion title="Validation Errors (400)">
+    - `invalid request body` - Request body is malformed or missing required fields
+    - `csrf token not found` - CSRF token missing for state-changing operations
+    - `method not allowed` - HTTP method not supported for this endpoint
+  </Accordion>
+
+  <Accordion title="Permission Errors (403)">
+    - Insufficient permissions to access the requested resource
+  </Accordion>
+
+  <Accordion title="Not Found Errors (404)">
+    - Resource does not exist or user does not have access
+  </Accordion>
+</AccordionGroup>
+
+## Request Body Limits
+
+For `POST`, `PUT`, and `PATCH` requests, the request body is limited in size for security purposes. Requests exceeding this limit will be rejected with a `400` status code.
+
+## CORS Support
+
+The API supports Cross-Origin Resource Sharing (CORS) for configured allowed origins:
+
+- Allowed Methods: `GET`, `POST`, `PUT`, `PATCH`, `DELETE`, `OPTIONS`
+- Allowed Headers: `Content-Type`
+- Credentials: Supported (cookies can be sent)
+- Max Age: 24 hours
+
+<Info>
+  Configure allowed origins in your server configuration to enable CORS for your frontend application.
+</Info>
+
+## Compression
+
+The API supports gzip compression for all JSON responses. Include the `Accept-Encoding: gzip` header in your request to receive compressed responses.
+
+```bash
+curl -H "Accept-Encoding: gzip" \
+  --cookie "session=your-session-token" \
+  http://localhost:8080/users
+```
+
+<Note>
+  Compression is not applied to streaming endpoints (`/logs/raw` and `/events`).
+</Note>
+
+## Rate Limiting
+
+The Chronoverse API implements rate limiting to ensure fair usage and system stability.
+
+### Rate Limit Headers
+
+While specific rate limit headers are not currently exposed, exceeding rate limits will result in a `429 Too Many Requests` response.
+
+### Best Practices
+
+- Implement exponential backoff for failed requests
+- Cache responses when appropriate
+- Use streaming endpoints for real-time data instead of polling
+- Batch operations when possible
+
+## API Endpoints Overview
+
+The Chronoverse API is organized into the following resource groups:
+
+<CardGroup cols={2}>
+  <Card title="Authentication" icon="key" href="/api/authentication">
+    User registration, login, logout, and session validation
+  </Card>
+  
+  <Card title="Users" icon="user">
+    User profile management and settings
+  </Card>
+  
+  <Card title="Workflows" icon="diagram-project">
+    Create and manage workflow automation
+  </Card>
+  
+  <Card title="Jobs" icon="gears">
+    View job execution history and logs
+  </Card>
+  
+  <Card title="Notifications" icon="bell">
+    Manage user notifications
+  </Card>
+  
+  <Card title="Analytics" icon="chart-line">
+    Access usage analytics and metrics
+  </Card>
+</CardGroup>
+
+## OpenTelemetry Integration
+
+All API requests are traced using OpenTelemetry for observability. Each request generates a trace span with the following attributes:
+
+- HTTP method and URL
+- Remote address and user agent
+- Response status code
+- Request duration
+
+<Info>
+  Streaming endpoints (`/logs/raw` and `/events`) are excluded from tracing to reduce overhead.
+</Info>

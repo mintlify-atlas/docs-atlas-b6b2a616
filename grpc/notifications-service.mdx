@@ -1,0 +1,309 @@
+---
+title: 'Notifications Service'
+description: 'User notification creation and management'
+---
+
+## Overview
+
+The Notifications Service handles creation and delivery of user notifications.
+
+**Service Details:**
+- **Package**: `notifications`
+- **Port**: `50054`
+- **Proto**: `proto/notifications/notifications.proto`
+
+## Service Definition
+
+```proto
+service NotificationsService {
+    rpc CreateNotification(CreateNotificationRequest) returns (CreateNotificationResponse) {}
+    rpc MarkNotificationsRead(MarkNotificationsReadRequest) returns (MarkNotificationsReadResponse) {}
+    rpc ListNotifications(ListNotificationsRequest) returns (ListNotificationsResponse) {}
+}
+```
+
+## RPC Methods
+
+### CreateNotification
+
+<Note>
+**Internal API** - Not exposed to public. Used by other services to create notifications.
+</Note>
+
+Create a new notification for a user.
+
+**Request:**
+
+<ParamField path="user_id" type="string" required>
+  ID of the user to notify
+</ParamField>
+
+<ParamField path="kind" type="string" required>
+  Type of notification (e.g., "workflow_failed", "job_completed", "threshold_reached")
+</ParamField>
+
+<ParamField path="payload" type="string" required>
+  JSON string containing notification data
+</ParamField>
+
+**Response:**
+
+<ResponseField name="id" type="string">
+  Unique identifier of the created notification
+</ResponseField>
+
+**Example:**
+
+```go
+req := &notifications.CreateNotificationRequest{
+    UserId: "user-123",
+    Kind:   "workflow_failed",
+    Payload: `{
+        "workflow_id": "workflow-456",
+        "workflow_name": "API Monitor",
+        "failure_count": 3
+    }`,
+}
+
+resp, err := client.CreateNotification(ctx, req)
+if err != nil {
+    log.Fatal(err)
+}
+
+fmt.Printf("Notification created: %s\n", resp.Id)
+```
+
+```bash
+# Using grpcurl (internal service)
+grpcurl -plaintext -d '{
+  "user_id": "user-123",
+  "kind": "workflow_failed",
+  "payload": "{\"workflow_id\": \"workflow-456\"}"
+}' localhost:50054 notifications.NotificationsService/CreateNotification
+```
+
+---
+
+### MarkNotificationsRead
+
+Mark one or more notifications as read.
+
+**Request:**
+
+<ParamField path="ids" type="string[]" required>
+  Array of notification IDs to mark as read
+</ParamField>
+
+<ParamField path="user_id" type="string" required>
+  User ID (for authorization)
+</ParamField>
+
+**Response:**
+
+Empty response on success.
+
+**Example:**
+
+```go
+req := &notifications.MarkNotificationsReadRequest{
+    Ids: []string{"notif-001", "notif-002", "notif-003"},
+    UserId: "user-123",
+}
+
+_, err := client.MarkNotificationsRead(ctx, req)
+if err != nil {
+    log.Fatal(err)
+}
+
+fmt.Println("Notifications marked as read")
+```
+
+```bash
+# Using grpcurl
+grpcurl -plaintext -d '{
+  "ids": ["notif-001", "notif-002"],
+  "user_id": "user-123"
+}' localhost:50054 notifications.NotificationsService/MarkNotificationsRead
+```
+
+---
+
+### ListNotifications
+
+Retrieve a paginated list of notifications for a user.
+
+**Request:**
+
+<ParamField path="user_id" type="string" required>
+  User ID
+</ParamField>
+
+<ParamField path="cursor" type="string">
+  Pagination cursor (empty for first page)
+</ParamField>
+
+**Response:**
+
+<ResponseField name="notifications" type="NotificationResponse[]">
+  Array of notification objects
+</ResponseField>
+
+<ResponseField name="cursor" type="string">
+  Cursor for next page (empty if no more pages)
+</ResponseField>
+
+**NotificationResponse:**
+
+<ResponseField name="id" type="string">
+  Notification ID
+</ResponseField>
+
+<ResponseField name="kind" type="string">
+  Notification type
+</ResponseField>
+
+<ResponseField name="payload" type="string">
+  JSON notification data
+</ResponseField>
+
+<ResponseField name="read_at" type="string">
+  Timestamp when marked as read (empty if unread)
+</ResponseField>
+
+<ResponseField name="created_at" type="string">
+  Creation timestamp
+</ResponseField>
+
+<ResponseField name="updated_at" type="string">
+  Last update timestamp
+</ResponseField>
+
+**Example:**
+
+```go
+req := &notifications.ListNotificationsRequest{
+    UserId: "user-123",
+    Cursor: "",
+}
+
+resp, err := client.ListNotifications(ctx, req)
+if err != nil {
+    log.Fatal(err)
+}
+
+for _, notif := range resp.Notifications {
+    status := "unread"
+    if notif.ReadAt != "" {
+        status = "read"
+    }
+    fmt.Printf("[%s] %s: %s\n", status, notif.Kind, notif.Payload)
+}
+
+// Fetch next page if available
+if resp.Cursor != "" {
+    nextReq := &notifications.ListNotificationsRequest{
+        UserId: "user-123",
+        Cursor: resp.Cursor,
+    }
+    // ... fetch next page
+}
+```
+
+```bash
+# Using grpcurl
+grpcurl -plaintext -d '{
+  "user_id": "user-123",
+  "cursor": ""
+}' localhost:50054 notifications.NotificationsService/ListNotifications
+```
+
+## Notification Types
+
+Common notification kinds used in Chronoverse:
+
+| Kind | Description | Payload Example |
+|------|-------------|----------------|
+| `workflow_failed` | Workflow reached failure threshold | `{"workflow_id": "...", "failure_count": 3}` |
+| `workflow_terminated` | Workflow was terminated | `{"workflow_id": "...", "reason": "max_failures"}` |
+| `job_completed` | Job execution completed | `{"job_id": "...", "status": "success"}` |
+| `job_failed` | Job execution failed | `{"job_id": "...", "error": "..."}` |
+| `threshold_warning` | Approaching failure threshold | `{"workflow_id": "...", "current": 2, "max": 3}` |
+
+## Connection Example
+
+```go
+package main
+
+import (
+    "context"
+    "log"
+
+    "google.golang.org/grpc"
+    "google.golang.org/grpc/credentials/insecure"
+    pb "github.com/hitesh22rana/chronoverse/pkg/proto/go/notifications"
+)
+
+func main() {
+    conn, err := grpc.Dial(
+        "localhost:50054",
+        grpc.WithTransportCredentials(insecure.NewCredentials()),
+    )
+    if err != nil {
+        log.Fatalf("Failed to connect: %v", err)
+    }
+    defer conn.Close()
+
+    client := pb.NewNotificationsServiceClient(conn)
+    ctx := context.Background()
+
+    // List notifications
+    resp, err := client.ListNotifications(ctx, &pb.ListNotificationsRequest{
+        UserId: "user-123",
+        Cursor: "",
+    })
+    if err != nil {
+        log.Fatalf("ListNotifications failed: %v", err)
+    }
+
+    unreadCount := 0
+    for _, notif := range resp.Notifications {
+        if notif.ReadAt == "" {
+            unreadCount++
+        }
+    }
+
+    log.Printf("Total: %d, Unread: %d", len(resp.Notifications), unreadCount)
+}
+```
+
+## Integration Example
+
+Example of creating a notification when a workflow fails:
+
+```go
+// In Workflows Service - after detecting failure threshold
+if thresholdReached {
+    // Call Notifications Service
+    notifClient := notifications.NewNotificationsServiceClient(notifConn)
+    
+    _, err := notifClient.CreateNotification(ctx, &notifications.CreateNotificationRequest{
+        UserId: workflow.UserId,
+        Kind:   "workflow_failed",
+        Payload: fmt.Sprintf(`{
+            "workflow_id": "%s",
+            "workflow_name": "%s",
+            "failure_count": %d
+        }`, workflow.Id, workflow.Name, workflow.ConsecutiveJobFailuresCount),
+    })
+    
+    if err != nil {
+        log.Printf("Failed to create notification: %v", err)
+    }
+}
+```
+
+## Related Services
+
+- [Users Service](/grpc/users-service) - User notification preferences
+- [Workflows Service](/grpc/workflows-service) - Workflow failure notifications
+- [Jobs Service](/grpc/jobs-service) - Job status notifications

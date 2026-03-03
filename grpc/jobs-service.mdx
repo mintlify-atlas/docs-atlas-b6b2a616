@@ -1,0 +1,534 @@
+---
+title: 'Jobs Service'
+description: 'Job scheduling, execution tracking, and log management'
+---
+
+## Overview
+
+The Jobs Service handles job scheduling, status tracking, and log management for workflow executions.
+
+**Service Details:**
+- **Package**: `jobs`
+- **Port**: `50053`
+- **Proto**: `proto/jobs/jobs.proto`
+
+## Service Definition
+
+```proto
+service JobsService {
+    rpc ScheduleJob(ScheduleJobRequest) returns (ScheduleJobResponse) {}
+    rpc UpdateJobStatus(UpdateJobStatusRequest) returns (UpdateJobStatusResponse) {}
+    rpc GetJob(GetJobRequest) returns (GetJobResponse) {}
+    rpc GetJobByID(GetJobByIDRequest) returns (GetJobByIDResponse) {}
+    rpc GetJobLogs(GetJobLogsRequest) returns (GetJobLogsResponse) {}
+    rpc StreamJobLogs(StreamJobLogsRequest) returns (stream Log) {}
+    rpc SearchJobLogs(SearchJobLogsRequest) returns (GetJobLogsResponse) {}
+    rpc ListJobs(ListJobsRequest) returns (ListJobsResponse) {}
+}
+```
+
+## Enums
+
+### LogStream
+
+```proto
+enum LogStream {
+    LOG_STREAM_UNSPECIFIED = 0;
+    LOG_STREAM_STDOUT      = 1;
+    LOG_STREAM_STDERR      = 2;
+    LOG_STREAM_ALL         = 3;
+}
+```
+
+## RPC Methods
+
+### ScheduleJob
+
+Schedule a new job for execution.
+
+**Request:**
+
+<ParamField path="workflow_id" type="string" required>
+  ID of the workflow to execute
+</ParamField>
+
+<ParamField path="user_id" type="string" required>
+  ID of the user
+</ParamField>
+
+<ParamField path="scheduled_at" type="string" required>
+  Timestamp when the job should run (RFC3339 format)
+</ParamField>
+
+<ParamField path="trigger" type="string" required>
+  Trigger type: "AUTOMATIC" or "MANUAL"
+</ParamField>
+
+**Response:**
+
+<ResponseField name="id" type="string">
+  Unique identifier of the scheduled job
+</ResponseField>
+
+**Example:**
+
+```go
+req := &jobs.ScheduleJobRequest{
+    WorkflowId:  "workflow-456",
+    UserId:      "user-123",
+    ScheduledAt: time.Now().Add(5 * time.Minute).Format(time.RFC3339),
+    Trigger:     "AUTOMATIC",
+}
+
+resp, err := client.ScheduleJob(ctx, req)
+if err != nil {
+    log.Fatal(err)
+}
+
+fmt.Printf("Job scheduled: %s\n", resp.Id)
+```
+
+---
+
+### UpdateJobStatus
+
+<Note>
+**Internal API** - Not exposed to public. Used by job executors.
+</Note>
+
+Update the status of a running job.
+
+**Request:**
+
+<ParamField path="id" type="string" required>
+  Job ID
+</ParamField>
+
+<ParamField path="container_id" type="string">
+  Container ID (if applicable)
+</ParamField>
+
+<ParamField path="status" type="string" required>
+  Job status (e.g., "pending", "running", "completed", "failed")
+</ParamField>
+
+**Response:**
+
+Empty response on success.
+
+---
+
+### GetJob
+
+Retrieve job details.
+
+**Request:**
+
+<ParamField path="id" type="string" required>
+  Job ID
+</ParamField>
+
+<ParamField path="workflow_id" type="string" required>
+  Workflow ID
+</ParamField>
+
+<ParamField path="user_id" type="string" required>
+  User ID (for authorization)
+</ParamField>
+
+**Response:**
+
+<ResponseField name="id" type="string">
+  Job ID
+</ResponseField>
+
+<ResponseField name="workflow_id" type="string">
+  Workflow ID
+</ResponseField>
+
+<ResponseField name="status" type="string">
+  Current job status
+</ResponseField>
+
+<ResponseField name="trigger" type="string">
+  Trigger type (AUTOMATIC or MANUAL)
+</ResponseField>
+
+<ResponseField name="scheduled_at" type="string">
+  Scheduled execution time
+</ResponseField>
+
+<ResponseField name="started_at" type="string">
+  Actual start time
+</ResponseField>
+
+<ResponseField name="completed_at" type="string">
+  Completion time
+</ResponseField>
+
+<ResponseField name="created_at" type="string">
+  Creation timestamp
+</ResponseField>
+
+<ResponseField name="updated_at" type="string">
+  Last update timestamp
+</ResponseField>
+
+**Example:**
+
+```go
+req := &jobs.GetJobRequest{
+    Id:         "job-789",
+    WorkflowId: "workflow-456",
+    UserId:     "user-123",
+}
+
+resp, err := client.GetJob(ctx, req)
+if err != nil {
+    log.Fatal(err)
+}
+
+fmt.Printf("Job Status: %s\n", resp.Status)
+```
+
+---
+
+### GetJobByID
+
+<Note>
+**Internal API** - Not exposed to public. Used for inter-service communication.
+</Note>
+
+Retrieve job by ID only (no user_id required).
+
+**Request:**
+
+<ParamField path="id" type="string" required>
+  Job ID
+</ParamField>
+
+**Response:**
+
+Same as GetJob response, plus `user_id` and `container_id` fields.
+
+---
+
+### GetJobLogs
+
+Retrieve paginated job logs.
+
+**Request:**
+
+<ParamField path="id" type="string" required>
+  Job ID
+</ParamField>
+
+<ParamField path="workflow_id" type="string" required>
+  Workflow ID
+</ParamField>
+
+<ParamField path="user_id" type="string" required>
+  User ID
+</ParamField>
+
+<ParamField path="cursor" type="string">
+  Pagination cursor
+</ParamField>
+
+<ParamField path="filters" type="GetJobLogsFilters">
+  Log stream filter
+</ParamField>
+
+**GetJobLogsFilters:**
+
+<ParamField path="stream" type="LogStream">
+  Filter by log stream (stdout, stderr, or all)
+</ParamField>
+
+**Response:**
+
+<ResponseField name="id" type="string">
+  Job ID
+</ResponseField>
+
+<ResponseField name="workflow_id" type="string">
+  Workflow ID
+</ResponseField>
+
+<ResponseField name="logs" type="Log[]">
+  Array of log entries
+</ResponseField>
+
+<ResponseField name="cursor" type="string">
+  Next page cursor
+</ResponseField>
+
+**Log Message:**
+
+<ResponseField name="timestamp" type="string">
+  Log timestamp
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  Log message content
+</ResponseField>
+
+<ResponseField name="sequence_num" type="uint32">
+  Sequence number for ordering
+</ResponseField>
+
+<ResponseField name="stream" type="string">
+  Stream type (stdout or stderr)
+</ResponseField>
+
+**Example:**
+
+```go
+req := &jobs.GetJobLogsRequest{
+    Id:         "job-789",
+    WorkflowId: "workflow-456",
+    UserId:     "user-123",
+    Cursor:     "",
+    Filters: &jobs.GetJobLogsFilters{
+        Stream: jobs.LogStream_LOG_STREAM_ALL,
+    },
+}
+
+resp, err := client.GetJobLogs(ctx, req)
+if err != nil {
+    log.Fatal(err)
+}
+
+for _, log := range resp.Logs {
+    fmt.Printf("[%s] %s: %s\n", log.Timestamp, log.Stream, log.Message)
+}
+```
+
+---
+
+### StreamJobLogs
+
+Stream job logs in real-time (server streaming).
+
+**Request:**
+
+<ParamField path="id" type="string" required>
+  Job ID
+</ParamField>
+
+<ParamField path="workflow_id" type="string" required>
+  Workflow ID
+</ParamField>
+
+<ParamField path="user_id" type="string" required>
+  User ID
+</ParamField>
+
+**Response:**
+
+Stream of `Log` messages.
+
+**Example:**
+
+```go
+req := &jobs.StreamJobLogsRequest{
+    Id:         "job-789",
+    WorkflowId: "workflow-456",
+    UserId:     "user-123",
+}
+
+stream, err := client.StreamJobLogs(ctx, req)
+if err != nil {
+    log.Fatal(err)
+}
+
+for {
+    log, err := stream.Recv()
+    if err == io.EOF {
+        break
+    }
+    if err != nil {
+        log.Fatal(err)
+    }
+    fmt.Printf("[%s] %s\n", log.Stream, log.Message)
+}
+```
+
+---
+
+### SearchJobLogs
+
+Search and filter job logs.
+
+**Request:**
+
+<ParamField path="id" type="string" required>
+  Job ID
+</ParamField>
+
+<ParamField path="workflow_id" type="string" required>
+  Workflow ID
+</ParamField>
+
+<ParamField path="user_id" type="string" required>
+  User ID
+</ParamField>
+
+<ParamField path="cursor" type="string">
+  Pagination cursor
+</ParamField>
+
+<ParamField path="filters" type="SearchJobLogsFilters" required>
+  Search filters
+</ParamField>
+
+**SearchJobLogsFilters:**
+
+<ParamField path="stream" type="LogStream">
+  Filter by log stream
+</ParamField>
+
+<ParamField path="message" type="string">
+  Search query for log messages
+</ParamField>
+
+**Response:**
+
+Same as GetJobLogs response.
+
+**Example:**
+
+```go
+req := &jobs.SearchJobLogsRequest{
+    Id:         "job-789",
+    WorkflowId: "workflow-456",
+    UserId:     "user-123",
+    Filters: &jobs.SearchJobLogsFilters{
+        Stream:  jobs.LogStream_LOG_STREAM_STDERR,
+        Message: "error",
+    },
+}
+
+resp, err := client.SearchJobLogs(ctx, req)
+if err != nil {
+    log.Fatal(err)
+}
+
+fmt.Printf("Found %d error logs\n", len(resp.Logs))
+```
+
+---
+
+### ListJobs
+
+List all jobs for a workflow with optional filters.
+
+**Request:**
+
+<ParamField path="workflow_id" type="string" required>
+  Workflow ID
+</ParamField>
+
+<ParamField path="user_id" type="string" required>
+  User ID
+</ParamField>
+
+<ParamField path="cursor" type="string">
+  Pagination cursor
+</ParamField>
+
+<ParamField path="filters" type="ListJobsFilters">
+  Optional filters
+</ParamField>
+
+**ListJobsFilters:**
+
+<ParamField path="status" type="string">
+  Filter by job status
+</ParamField>
+
+<ParamField path="trigger" type="string">
+  Filter by trigger type
+</ParamField>
+
+**Response:**
+
+<ResponseField name="jobs" type="JobsResponse[]">
+  Array of job objects
+</ResponseField>
+
+<ResponseField name="cursor" type="string">
+  Next page cursor
+</ResponseField>
+
+**Example:**
+
+```go
+req := &jobs.ListJobsRequest{
+    WorkflowId: "workflow-456",
+    UserId:     "user-123",
+    Cursor:     "",
+    Filters: &jobs.ListJobsFilters{
+        Status:  "failed",
+        Trigger: "AUTOMATIC",
+    },
+}
+
+resp, err := client.ListJobs(ctx, req)
+if err != nil {
+    log.Fatal(err)
+}
+
+for _, job := range resp.Jobs {
+    fmt.Printf("Job %s: %s\n", job.Id, job.Status)
+}
+```
+
+## Connection Example
+
+```go
+package main
+
+import (
+    "context"
+    "log"
+    "time"
+
+    "google.golang.org/grpc"
+    "google.golang.org/grpc/credentials/insecure"
+    pb "github.com/hitesh22rana/chronoverse/pkg/proto/go/jobs"
+)
+
+func main() {
+    conn, err := grpc.Dial(
+        "localhost:50053",
+        grpc.WithTransportCredentials(insecure.NewCredentials()),
+    )
+    if err != nil {
+        log.Fatalf("Failed to connect: %v", err)
+    }
+    defer conn.Close()
+
+    client := pb.NewJobsServiceClient(conn)
+    ctx := context.Background()
+
+    // Schedule a job
+    resp, err := client.ScheduleJob(ctx, &pb.ScheduleJobRequest{
+        WorkflowId:  "workflow-456",
+        UserId:      "user-123",
+        ScheduledAt: time.Now().Add(1 * time.Hour).Format(time.RFC3339),
+        Trigger:     "MANUAL",
+    })
+    if err != nil {
+        log.Fatalf("ScheduleJob failed: %v", err)
+    }
+
+    log.Printf("Job scheduled: %s", resp.Id)
+}
+```
+
+## Related Services
+
+- [Workflows Service](/grpc/workflows-service) - Parent workflow management
+- [Notifications Service](/grpc/notifications-service) - Job failure notifications
+- [Analytics Service](/grpc/analytics-service) - Job execution metrics

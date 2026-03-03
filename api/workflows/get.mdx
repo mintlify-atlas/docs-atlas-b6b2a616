@@ -1,0 +1,83 @@
+---
+title: Get Workflow
+api: GET /workflows/{workflow_id}
+---
+
+Retrieves detailed information about a specific workflow.
+
+## Path Parameters
+
+<ParamField path="workflow_id" type="string" required>
+  Unique identifier of the workflow to retrieve
+</ParamField>
+
+## Response
+
+<ResponseField name="id" type="string">
+  Unique identifier of the workflow
+</ResponseField>
+
+<ResponseField name="name" type="string">
+  Name of the workflow
+</ResponseField>
+
+<ResponseField name="payload" type="string">
+  JSON string containing the workflow payload configuration
+</ResponseField>
+
+<ResponseField name="kind" type="string">
+  Kind of workflow
+</ResponseField>
+
+<ResponseField name="build_status" type="string">
+  Current build status of the workflow
+</ResponseField>
+
+<ResponseField name="interval" type="integer">
+  Execution interval measured in minutes
+</ResponseField>
+
+<ResponseField name="consecutive_job_failures_count" type="integer">
+  Current count of consecutive job failures
+</ResponseField>
+
+<ResponseField name="max_consecutive_job_failures_allowed" type="integer">
+  Maximum number of consecutive job failures allowed before termination
+</ResponseField>
+
+<ResponseField name="created_at" type="string">
+  ISO 8601 timestamp when the workflow was created
+</ResponseField>
+
+<ResponseField name="updated_at" type="string">
+  ISO 8601 timestamp when the workflow was last updated
+</ResponseField>
+
+<ResponseField name="terminated_at" type="string">
+  ISO 8601 timestamp when the workflow was terminated (if applicable)
+</ResponseField>
+
+## Example Request
+
+```bash
+curl -X GET https://api.chronoverse.com/workflows/wf_1234567890abcdef \
+  -H "Authorization: Bearer YOUR_API_TOKEN"
+```
+
+## Example Response
+
+```json
+{
+  "id": "wf_1234567890abcdef",
+  "name": "Daily Data Sync",
+  "payload": "{\"source\":\"database\",\"destination\":\"s3\"}",
+  "kind": "scheduled",
+  "build_status": "success",
+  "interval": 1440,
+  "consecutive_job_failures_count": 0,
+  "max_consecutive_job_failures_allowed": 3,
+  "created_at": "2026-01-15T10:30:00Z",
+  "updated_at": "2026-03-01T14:22:00Z",
+  "terminated_at": ""
+}
+```

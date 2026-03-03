@@ -1,0 +1,195 @@
+---
+title: 'Stream Job Logs'
+api: 'GET /workflows/{workflow_id}/jobs/{job_id}/events'
+description: 'Stream real-time job logs using Server-Sent Events (SSE)'
+---
+
+<Info>
+This endpoint uses Server-Sent Events (SSE) to stream logs in real-time as the job executes.
+</Info>
+
+## Path Parameters
+
+<ParamField path="workflow_id" type="string" required>
+  The unique identifier of the workflow
+</ParamField>
+
+<ParamField path="job_id" type="string" required>
+  The unique identifier of the job
+</ParamField>
+
+## Response Headers
+
+```
+Content-Type: text/event-stream
+Cache-Control: no-cache
+Connection: keep-alive
+```
+
+## Event Types
+
+<ResponseField name="connected" type="event">
+  Sent immediately when the connection is established
+  
+  ```
+  event: connected
+  data: {"status":"connected"}
+  ```
+</ResponseField>
+
+<ResponseField name="log" type="event">
+  Sent for each log entry as it's generated
+  
+  <ResponseField name="timestamp" type="string">
+    ISO 8601 timestamp when the log was created
+  </ResponseField>
+  
+  <ResponseField name="message" type="string">
+    The log message content
+  </ResponseField>
+  
+  <ResponseField name="sequence_num" type="integer">
+    Sequence number for ordering
+  </ResponseField>
+  
+  <ResponseField name="stream" type="string">
+    Stream type: `stdout` or `stderr`
+  </ResponseField>
+</ResponseField>
+
+<ResponseField name="end" type="event">
+  Sent when the stream completes normally
+  
+  ```
+  event: end
+  data: {"status":"stream_ended"}
+  ```
+</ResponseField>
+
+<ResponseField name="error" type="event">
+  Sent when an error occurs
+  
+  ```
+  event: error
+  data: error message here
+  ```
+</ResponseField>
+
+## Examples
+
+<CodeGroup>
+```bash cURL
+curl -N -X GET 'https://api.chronoverse.dev/workflows/wf_abc123/jobs/job_xyz789/events' \
+  -H 'Authorization: Bearer YOUR_API_TOKEN'
+```
+
+```javascript JavaScript
+// Using EventSource API
+const eventSource = new EventSource(
+  'https://api.chronoverse.dev/workflows/wf_abc123/jobs/job_xyz789/events',
+  {
+    headers: {
+      'Authorization': 'Bearer YOUR_API_TOKEN'
+    }
+  }
+);
+
+// Handle connection
+eventSource.addEventListener('connected', (event) => {
+  const data = JSON.parse(event.data);
+  console.log('Connected:', data.status);
+});
+
+// Handle log messages
+eventSource.addEventListener('log', (event) => {
+  const log = JSON.parse(event.data);
+  const prefix = log.stream === 'stderr' ? '[ERROR]' : '[INFO]';
+  console.log(`${prefix} ${log.message}`);
+});
+
+// Handle stream end
+eventSource.addEventListener('end', (event) => {
+  console.log('Stream ended');
+  eventSource.close();
+});
+
+// Handle errors
+eventSource.addEventListener('error', (event) => {
+  console.error('Stream error:', event.data);
+  eventSource.close();
+});
+
+// Clean up on page unload
+window.addEventListener('beforeunload', () => {
+  eventSource.close();
+});
+```
+
+```javascript Node.js
+// Using fetch with stream processing
+const response = await fetch(
+  'https://api.chronoverse.dev/workflows/wf_abc123/jobs/job_xyz789/events',
+  {
+    headers: {
+      'Authorization': 'Bearer YOUR_API_TOKEN'
+    }
+  }
+);
+
+const reader = response.body.getReader();
+const decoder = new TextDecoder();
+
+while (true) {
+  const { done, value } = await reader.read();
+  if (done) break;
+  
+  const chunk = decoder.decode(value, { stream: true });
+  const lines = chunk.split('\n');
+  
+  for (const line of lines) {
+    if (line.startsWith('event: ')) {
+      const eventType = line.substring(7);
+      console.log('Event type:', eventType);
+    } else if (line.startsWith('data: ')) {
+      const data = line.substring(6);
+      try {
+        const parsed = JSON.parse(data);
+        console.log('Data:', parsed);
+      } catch {
+        console.log('Data:', data);
+      }
+    }
+  }
+}
+```
+</CodeGroup>
+
+### Example Event Stream
+
+```
+event: connected
+data: {"status":"connected"}
+
+event: log
+data: {"timestamp":"2026-03-03T10:00:05.123Z","message":"Starting workflow execution","sequence_num":1,"stream":"stdout"}
+
+event: log
+data: {"timestamp":"2026-03-03T10:00:06.456Z","message":"Loading configuration","sequence_num":2,"stream":"stdout"}
+
+event: log
+data: {"timestamp":"2026-03-03T10:00:07.789Z","message":"Warning: deprecated option used","sequence_num":3,"stream":"stderr"}
+
+event: log
+data: {"timestamp":"2026-03-03T10:15:30.123Z","message":"Workflow completed successfully","sequence_num":1547,"stream":"stdout"}
+
+event: end
+data: {"status":"stream_ended"}
+```
+
+<Warning>
+The connection will automatically close when the job completes or fails. Make sure to handle connection cleanup in your client.
+</Warning>
+
+<Info>
+For historical logs, use the [Get Job Logs](/api/jobs/logs) endpoint with pagination instead.
+</Info>

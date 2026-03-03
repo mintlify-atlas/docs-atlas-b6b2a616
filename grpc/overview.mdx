@@ -1,0 +1,125 @@
+---
+title: 'gRPC Services Overview'
+description: 'Learn about Chronoverse internal gRPC microservices architecture'
+---
+
+## Architecture
+
+Chronoverse uses a microservices architecture with 5 internal gRPC services that handle different aspects of workflow automation:
+
+| Service | Port | Purpose |
+|---------|------|----------|
+| **Users** | 50051 | User authentication and profile management |
+| **Workflows** | 50052 | Workflow creation, updates, and lifecycle management |
+| **Jobs** | 50053 | Job scheduling, execution tracking, and log management |
+| **Notifications** | 50054 | User notification creation and delivery |
+| **Analytics** | 50055 | User and workflow analytics and metrics |
+
+## Service Communication
+
+All services communicate via gRPC using Protocol Buffers (proto3). This provides:
+
+- **Type Safety**: Strongly typed messages and services
+- **Performance**: Binary serialization for efficient data transfer
+- **Code Generation**: Auto-generated client/server code for Go
+- **Streaming**: Support for bidirectional streaming (used in job logs)
+
+## Authentication
+
+Most gRPC endpoints require authentication via user ID:
+
+```go
+// User ID is passed in request messages
+message GetWorkflowRequest {
+    string id      = 1; // Workflow ID
+    string user_id = 2; // User ID for authentication
+}
+```
+
+<Note>
+Internal APIs (marked in documentation) are not exposed to public and are only used for inter-service communication.
+</Note>
+
+## TLS Configuration
+
+All services support TLS encryption for secure communication:
+
+```go
+// Server-side TLS
+creds, err := credentials.NewServerTLSFromFile(certFile, keyFile)
+server := grpc.NewServer(grpc.Creds(creds))
+
+// Client-side TLS
+creds, err := credentials.NewClientTLSFromFile(certFile, "")
+conn, err := grpc.Dial(address, grpc.WithTransportCredentials(creds))
+```
+
+<Info>
+For local development, services can run without TLS using `grpc.WithInsecure()` (deprecated) or `grpc.WithTransportCredentials(insecure.NewCredentials())`.
+</Info>
+
+## Internal vs Public APIs
+
+Some RPC methods are marked as **internal** and should not be exposed publicly:
+
+- `UpdateWorkflowBuildStatus` - Internal workflow status updates
+- `GetWorkflowByID` - Internal workflow retrieval without user context
+- `UpdateJobStatus` - Internal job status updates
+- `GetJobByID` - Internal job retrieval
+- `CreateNotification` - Internal notification creation
+
+These are typically called by other microservices and should be protected by service-to-service authentication.
+
+## Error Handling
+
+gRPC uses status codes for error handling:
+
+```go
+import "google.golang.org/grpc/codes"
+import "google.golang.org/grpc/status"
+
+// Return error
+return nil, status.Error(codes.NotFound, "workflow not found")
+
+// Client error handling
+resp, err := client.GetWorkflow(ctx, req)
+if err != nil {
+    st, ok := status.FromError(err)
+    if ok {
+        fmt.Printf("Code: %s, Message: %s\n", st.Code(), st.Message())
+    }
+}
+```
+
+Common status codes:
+- `OK` - Success
+- `NotFound` - Resource not found
+- `InvalidArgument` - Invalid request parameters
+- `PermissionDenied` - Authorization failure
+- `Internal` - Server error
+
+## Testing with grpcurl
+
+You can test gRPC services using [grpcurl](https://github.com/fullstorydev/grpcurl):
+
+```bash
+# List services
+grpcurl -plaintext localhost:50051 list
+
+# Describe service
+grpcurl -plaintext localhost:50051 describe users.UsersService
+
+# Call RPC method
+grpcurl -plaintext -d '{"email": "user@example.com", "password": "secret"}' \
+  localhost:50051 users.UsersService/RegisterUser
+```
+
+## Next Steps
+
+Explore individual service documentation:
+
+- [Users Service](/grpc/users-service) - Authentication and user management
+- [Workflows Service](/grpc/workflows-service) - Workflow operations
+- [Jobs Service](/grpc/jobs-service) - Job scheduling and logs
+- [Notifications Service](/grpc/notifications-service) - Notifications
+- [Analytics Service](/grpc/analytics-service) - Metrics and analytics

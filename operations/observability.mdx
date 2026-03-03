@@ -1,0 +1,374 @@
+---
+title: Observability
+description: OpenTelemetry integration, distributed tracing, metrics, and structured logging
+---
+
+## Overview
+
+Chronoverse implements comprehensive observability through OpenTelemetry, providing distributed tracing, metrics collection, and structured logging across all services.
+
+## OpenTelemetry Architecture
+
+All telemetry data flows through the OTLP gRPC exporter to the Grafana LGTM stack:
+
+```
+Services → OTLP Exporter → LGTM Stack (Port 4317)
+    ↓
+Traces → Tempo
+Metrics → Mimir  
+Logs → Loki
+```
+
+## Traces
+
+### Tracer Initialization
+
+The OpenTelemetry tracer is initialized for each service with resource attributes:
+
+```go
+// InitTracerProvider initializes a new tracer provider
+func InitTracerProvider(ctx context.Context, res *resource.Resource) (*sdktrace.TracerProvider, error) {
+    exporter, err := otlptracegrpc.New(ctx)
+    if err != nil {
+        return nil, status.Errorf(codes.Internal, "failed to create OTLP trace exporter: %v", err)
+    }
+
+    bsp := sdktrace.NewBatchSpanProcessor(exporter)
+    tp := sdktrace.NewTracerProvider(
+        sdktrace.WithBatcher(exporter),
+        sdktrace.WithResource(res),
+        sdktrace.WithSpanProcessor(bsp),
+    )
+    otel.SetTracerProvider(tp)
+
+    // Set the global propagator to tracecontext and baggage
+    otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(
+        propagation.TraceContext{},
+        propagation.Baggage{},
+    ))
+
+    return tp, nil
+}
+```
+
+Source: `internal/pkg/otel/otel.go:48`
+
+### Resource Attributes
+
+Each service is identified with semantic conventions:
+
+```go
+func InitResource(ctx context.Context, serviceName, serviceVersion string) (*resource.Resource, error) {
+    hostName, err := os.Hostname()
+    if err != nil {
+        return nil, status.Errorf(codes.Internal, "failed to get hostname: %v", err)
+    }
+
+    res, err := resource.New(
+        ctx,
+        resource.WithFromEnv(),
+        resource.WithProcess(),
+        resource.WithContainer(),
+        resource.WithAttributes(
+            semconv.ServiceName(serviceName),
+            semconv.ServiceVersion(serviceVersion),
+            semconv.HostName(hostName),
+        ),
+    )
+    if err != nil {
+        return nil, status.Errorf(codes.Internal, "failed to create resource: %v", err)
+    }
+
+    return res, nil
+}
+```
+
+Source: `internal/pkg/otel/otel.go:24`
+
+### Trace Propagation
+
+Chronoverse uses W3C Trace Context and Baggage propagation across service boundaries:
+
+```go
+otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(
+    propagation.TraceContext{},
+    propagation.Baggage{},
+))
+```
+
+This ensures distributed traces span across:
+- HTTP requests
+- gRPC calls
+- Message queue consumers
+- Database operations
+
+## Metrics
+
+### Meter Provider
+
+The meter provider exports metrics via OTLP with periodic reader:
+
+```go
+func InitMeterProvider(ctx context.Context, res *resource.Resource) (*sdkmetric.MeterProvider, error) {
+    exporter, err := otlpmetricgrpc.New(ctx)
+    if err != nil {
+        return nil, status.Errorf(codes.Internal, "failed to create OTLP metric exporter: %v", err)
+    }
+
+    mp := sdkmetric.NewMeterProvider(
+        sdkmetric.WithResource(res),
+        sdkmetric.WithReader(sdkmetric.NewPeriodicReader(exporter)),
+    )
+    otel.SetMeterProvider(mp)
+
+    if err := hostmetrics.Start(hostmetrics.WithMeterProvider(mp)); err != nil {
+        return nil, status.Errorf(codes.Internal, "failed to start hostmetrics: %v", err)
+    }
+
+    if err := runtimemetrics.Start(runtimemetrics.WithMeterProvider(mp)); err != nil {
+        return nil, status.Errorf(codes.Internal, "failed to start runtime: %v", err)
+    }
+
+    return mp, nil
+}
+```
+
+Source: `internal/pkg/otel/otel.go:73`
+
+### Automatic Metrics
+
+Chronoverse automatically collects:
+
+**Host Metrics:**
+- CPU utilization
+- Memory usage
+- Disk I/O
+- Network statistics
+
+**Runtime Metrics:**
+- Goroutine count
+- Memory allocations
+- GC statistics
+- Heap usage
+
+### Custom Metrics
+
+Services can create custom metrics using the global meter provider:
+
+```go
+meter := otel.Meter("service-name")
+counter, _ := meter.Int64Counter(
+    "custom.metric",
+    metric.WithDescription("Description of the metric"),
+)
+counter.Add(ctx, 1)
+```
+
+## Logs
+
+### Logger Provider
+
+Structured logs are exported to Loki via OTLP:
+
+```go
+func InitLogProvider(ctx context.Context, res *resource.Resource) (*sdklog.LoggerProvider, error) {
+    exporter, err := otlploggrpc.New(ctx)
+    if err != nil {
+        return nil, status.Errorf(codes.Internal, "failed to create OTLP log exporter: %v", err)
+    }
+
+    lp := sdklog.NewLoggerProvider(
+        sdklog.WithResource(res),
+        sdklog.WithProcessor(sdklog.NewBatchProcessor(exporter)),
+    )
+
+    return lp, nil
+}
+```
+
+Source: `internal/pkg/otel/otel.go:97`
+
+### gRPC Logging
+
+The gRPC middleware implements intelligent logging with level mapping:
+
+```go
+func serverCodeToLevel(code codes.Code) logging.Level {
+    switch code {
+    // Success case
+    case codes.OK:
+        return logging.LevelInfo
+
+    // Client errors - Warning level
+    case codes.InvalidArgument,
+        codes.NotFound,
+        codes.AlreadyExists,
+        codes.PermissionDenied,
+        codes.Unauthenticated,
+        codes.FailedPrecondition,
+        codes.OutOfRange:
+        return logging.LevelWarn
+
+    // Server errors - Error level
+    case codes.Unknown,
+        codes.DeadlineExceeded,
+        codes.Canceled,
+        codes.ResourceExhausted,
+        codes.Aborted,
+        codes.Unimplemented,
+        codes.Internal,
+        codes.Unavailable,
+        codes.DataLoss:
+        return logging.LevelError
+
+    default:
+        return logging.LevelInfo
+    }
+}
+```
+
+Source: `internal/pkg/grpc/middlewares/middlewares.go:68`
+
+<Info>
+Health check endpoints (`/grpc.health.v1.Health/`) are automatically excluded from logging to reduce noise.
+</Info>
+
+## Configuration
+
+### Environment Variables
+
+All services use these environment variables for telemetry:
+
+```bash
+OTEL_EXPORTER_OTLP_ENDPOINT=http://lgtm:4317
+OTEL_EXPORTER_OTLP_PROTOCOL=grpc
+ENV=production  # or development
+```
+
+### Service Configuration Example
+
+```yaml
+users-service:
+  environment:
+    OTEL_EXPORTER_OTLP_ENDPOINT: http://lgtm:4317
+    OTEL_EXPORTER_OTLP_PROTOCOL: grpc
+    ENV: production
+```
+
+## Querying Telemetry Data
+
+### Trace Queries (Tempo)
+
+Find traces by service and operation:
+
+```
+{ service.name="users-service" } | operation="IssueToken"
+```
+
+### Metrics Queries (Prometheus/Mimir)
+
+Query runtime metrics:
+
+```promql
+rate(runtime_go_goroutines{service_name="users-service"}[5m])
+```
+
+### Log Queries (Loki)
+
+Filter logs by level and service:
+
+```logql
+{service_name="workflows-service"} |= "level=error"
+```
+
+## Observability Best Practices
+
+<Steps>
+  <Step title="Add Context to Spans">
+    Always add relevant attributes to spans:
+    ```go
+    ctx, span := tracer.Start(ctx, "operation")
+    defer span.End()
+    span.SetAttributes(
+        attribute.String("user.id", userID),
+        attribute.String("workflow.id", workflowID),
+    )
+    ```
+  </Step>
+
+  <Step title="Record Errors">
+    Record errors in spans for better debugging:
+    ```go
+    if err != nil {
+        span.SetStatus(otelcodes.Error, err.Error())
+        span.RecordError(err)
+    }
+    ```
+  </Step>
+
+  <Step title="Use Structured Logging">
+    Always use structured fields with zap logger:
+    ```go
+    logger.Info("user registered",
+        zap.String("user_id", userID),
+        zap.String("email", email),
+    )
+    ```
+  </Step>
+
+  <Step title="Correlate Traces and Logs">
+    Include trace IDs in logs for correlation:
+    ```go
+    spanCtx := trace.SpanFromContext(ctx).SpanContext()
+    logger.Info("processing request",
+        zap.String("trace_id", spanCtx.TraceID().String()),
+    )
+    ```
+  </Step>
+</Steps>
+
+<Accordion title="Example: JWT Token Issuance Trace">
+  ```go
+  func (a *Auth) IssueToken(ctx context.Context, subject string) (token string, err error) {
+      ctx, span := a.tp.Start(ctx, "Auth.IssueToken")
+      defer func() {
+          if err != nil {
+              span.SetStatus(otelcodes.Error, err.Error())
+              span.RecordError(err)
+          }
+          span.End()
+      }()
+
+      audience, err := audienceFromContext(ctx)
+      if err != nil {
+          return "", err
+      }
+
+      role, err := roleFromContext(ctx)
+      if err != nil {
+          return "", err
+      }
+
+      now := time.Now()
+      _token := jwt.NewWithClaims(&jwt.SigningMethodEd25519{}, jwt.MapClaims{
+          "aud": audience,
+          "nbf": now.Unix(),
+          "iat": now.Unix(),
+          "exp": now.Add(Expiry).Unix(),
+          "iss": a.issuer,
+          "sub": subject,
+          "role": role,
+      })
+
+      token, err = _token.SignedString(a.privateKey)
+      if err != nil {
+          err = status.Errorf(codes.Internal, "failed to sign token: %v", err)
+          return "", err
+      }
+
+      return token, nil
+  }
+  ```
+  
+  Source: `internal/pkg/auth/auth.go:287`
+</Accordion>

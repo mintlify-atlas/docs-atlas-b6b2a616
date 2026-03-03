@@ -1,80 +1,357 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: Quickstart
+description: Get Chronoverse running in minutes with Docker Compose
 ---
 
-## Get started in three steps
+## Prerequisites
 
-Get your documentation site running locally and make your first customization.
-
-### Step 1: Set up your local environment
-
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
-    
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
-    
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
-
-### Step 2: Deploy your changes
-
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
-
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
-
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
-
-### Step 3: Go live
-
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
-
-## Next steps
-
-Now that you have your docs running, explore these key features:
+Before you begin, ensure you have the following installed:
 
 <CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
+  <Card title="Docker" icon="docker">
+    Version 20.10 or higher
+    
+    [Install Docker](https://docs.docker.com/get-docker/)
+  </Card>
+  
+  <Card title="Docker Compose" icon="layer-group">
+    Version 2.0 or higher
+    
+    [Install Docker Compose](https://docs.docker.com/compose/install/)
+  </Card>
 </CardGroup>
 
 <Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
+  No other dependencies are required - all services run in containers with automated setup.
 </Note>
+
+## Quick Start
+
+Get Chronoverse up and running in 3 simple steps:
+
+<Steps>
+  <Step title="Clone the Repository">
+    ```bash
+    git clone https://github.com/hitesh22rana/chronoverse.git
+    cd chronoverse
+    ```
+  </Step>
+
+  <Step title="Start the Development Environment">
+    ```bash
+    docker compose -f compose.dev.yaml up -d
+    ```
+    
+    This will start all services including:
+    - PostgreSQL (transactional database)
+    - ClickHouse (analytics database)
+    - Redis (caching layer)
+    - Kafka (message broker)
+    - Meilisearch (search engine)
+    - All microservices and workers
+    - Dashboard and monitoring
+  </Step>
+
+  <Step title="Access the Dashboard">
+    Once all services are healthy (this may take 1-2 minutes), open your browser:
+    
+    ```
+    http://localhost:3001
+    ```
+    
+    You can also access the Grafana monitoring dashboard:
+    
+    ```
+    http://localhost:3000
+    ```
+  </Step>
+</Steps>
+
+## Verify Installation
+
+Check that all services are running:
+
+```bash
+docker compose -f compose.dev.yaml ps
+```
+
+You should see all services with status `Up` or `healthy`.
+
+<Info>
+  The first startup generates TLS certificates and runs database migrations automatically. Subsequent startups will be much faster.
+</Info>
+
+## What's Running?
+
+The development environment exposes the following ports:
+
+<AccordionGroup>
+  <Accordion title="Application Services">
+    | Service | Port | Description |
+    |---------|------|-------------|
+    | Dashboard | 3001 | Web UI for managing workflows and jobs |
+    | API Server | 8080 | REST API endpoint |
+    | Users Service | 50051 | gRPC service for user management |
+    | Workflows Service | 50052 | gRPC service for workflow management |
+    | Jobs Service | 50053 | gRPC service for job management |
+    | Notifications Service | 50054 | gRPC service for notifications |
+    | Analytics Service | 50055 | gRPC service for analytics |
+  </Accordion>
+
+  <Accordion title="Infrastructure Services">
+    | Service | Port | Description |
+    |---------|------|-------------|
+    | PostgreSQL | 5432 | Primary database |
+    | ClickHouse | 9440 | Analytics database (TLS) |
+    | Redis | 6379 | Cache and pub/sub (TLS) |
+    | Kafka | 9094 | Message broker (SSL) |
+    | Meilisearch | 7700 | Search engine (HTTPS) |
+    | Grafana | 3000 | Observability dashboard |
+  </Accordion>
+</AccordionGroup>
+
+## Test the API
+
+Create your first workflow using the REST API:
+
+<CodeGroup>
+```bash cURL
+curl -X POST http://localhost:8080/workflows \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "health-check",
+    "type": "HEARTBEAT",
+    "schedule": 5,
+    "config": {}
+  }'
+```
+
+```javascript JavaScript
+const response = await fetch('http://localhost:8080/workflows', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    name: 'health-check',
+    type: 'HEARTBEAT',
+    schedule: 5,
+    config: {}
+  })
+});
+
+const workflow = await response.json();
+console.log(workflow);
+```
+
+```python Python
+import requests
+
+response = requests.post(
+    'http://localhost:8080/workflows',
+    json={
+        'name': 'health-check',
+        'type': 'HEARTBEAT',
+        'schedule': 5,
+        'config': {}
+    }
+)
+
+workflow = response.json()
+print(workflow)
+```
+</CodeGroup>
+
+This creates a simple HEARTBEAT workflow that runs every 5 minutes.
+
+## Create a Container Workflow
+
+For more complex tasks, create a CONTAINER workflow that runs a Docker image:
+
+<CodeGroup>
+```bash cURL
+curl -X POST http://localhost:8080/workflows \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "hello-world",
+    "type": "CONTAINER",
+    "schedule": 10,
+    "config": {
+      "image": "alpine:latest",
+      "command": ["echo", "Hello from Chronoverse!"],
+      "env": {
+        "ENVIRONMENT": "development"
+      }
+    }
+  }'
+```
+
+```json Response
+{
+  "id": "wf_abc123",
+  "name": "hello-world",
+  "type": "CONTAINER",
+  "schedule": 10,
+  "status": "ACTIVE",
+  "created_at": "2026-03-03T07:00:00Z"
+}
+```
+</CodeGroup>
+
+## Monitor Job Execution
+
+Stream job logs in real-time using Server-Sent Events:
+
+```bash
+curl -N http://localhost:8080/workflows/{workflow_id}/jobs/{job_id}/events
+```
+
+Or view them in the dashboard for a better experience.
+
+## Environment Variables
+
+The development environment comes with sensible defaults. Key configuration:
+
+<AccordionGroup>
+  <Accordion title="Database Configuration">
+    ```yaml
+    # PostgreSQL
+    POSTGRES_HOST: postgres
+    POSTGRES_USER: primary
+    POSTGRES_PASSWORD: chronoverse
+    POSTGRES_DB: chronoverse
+    POSTGRES_TLS_ENABLED: true
+    
+    # ClickHouse
+    CLICKHOUSE_HOSTS: clickhouse:9440
+    CLICKHOUSE_USERNAME: chronoverse-client
+    CLICKHOUSE_PASSWORD: chronoverse
+    CLICKHOUSE_TLS_ENABLED: true
+    ```
+  </Accordion>
+
+  <Accordion title="Message Broker Configuration">
+    ```yaml
+    # Kafka
+    KAFKA_BROKERS: kafka:9094
+    KAFKA_TLS_ENABLED: true
+    KAFKA_CONSUMER_GROUP: workflow-worker
+    
+    # Redis
+    REDIS_HOST: redis
+    REDIS_TLS_ENABLED: true
+    ```
+  </Accordion>
+
+  <Accordion title="Service Configuration">
+    ```yaml
+    # Server
+    SERVER_HOST: 0.0.0.0
+    SERVER_PORT: 8080
+    
+    # gRPC Services
+    GRPC_TLS_ENABLED: true
+    GRPC_PORT: 5005X  # X = 1-5 for each service
+    
+    # Observability
+    OTEL_EXPORTER_OTLP_ENDPOINT: http://lgtm:4317
+    OTEL_EXPORTER_OTLP_PROTOCOL: grpc
+    ENV: development
+    ```
+  </Accordion>
+</AccordionGroup>
+
+<Warning>
+  Default credentials are used for development. Always change these for production deployments.
+</Warning>
+
+## View Observability Data
+
+Chronoverse includes built-in observability with Grafana:
+
+1. Open [http://localhost:3000](http://localhost:3000)
+2. Navigate to Dashboards
+3. Explore traces, metrics, and logs
+
+<Info>
+  The observability stack (LGTM - Loki, Grafana, Tempo, Mimir) is pre-configured and requires no additional setup.
+</Info>
+
+## Stop Services
+
+When you're done, stop all services:
+
+```bash
+docker compose -f compose.dev.yaml down
+```
+
+To remove all data volumes as well:
+
+```bash
+docker compose -f compose.dev.yaml down -v
+```
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Services won't start">
+    Check Docker logs for specific services:
+    ```bash
+    docker compose -f compose.dev.yaml logs [service-name]
+    ```
+    
+    Common issues:
+    - Port conflicts - ensure ports 3000, 3001, 5432, 6379, 8080, 9440 are available
+    - Insufficient resources - allocate at least 4GB RAM to Docker
+  </Accordion>
+
+  <Accordion title="Certificate errors">
+    The `init-certs` service automatically generates TLS certificates on first run. If you see certificate errors:
+    
+    ```bash
+    # Remove old certificates and restart
+    rm -rf certs/
+    docker compose -f compose.dev.yaml up -d
+    ```
+  </Accordion>
+
+  <Accordion title="Database connection errors">
+    Wait for databases to become healthy:
+    ```bash
+    docker compose -f compose.dev.yaml ps
+    ```
+    
+    PostgreSQL and ClickHouse may take 30-60 seconds to initialize on first run.
+  </Accordion>
+
+  <Accordion title="Jobs not executing">
+    Check worker logs:
+    ```bash
+    docker compose -f compose.dev.yaml logs scheduling-worker
+    docker compose -f compose.dev.yaml logs execution-worker
+    ```
+    
+    Verify Kafka is running:
+    ```bash
+    docker compose -f compose.dev.yaml ps kafka
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Installation Guide" icon="download" href="/installation">
+    Learn about production deployment options
+  </Card>
+  
+  <Card title="Configuration" icon="gear" href="/configuration">
+    Deep dive into configuration options
+  </Card>
+  
+  <Card title="API Reference" icon="book" href="/api-reference">
+    Explore the complete REST API
+  </Card>
+  
+  <Card title="Architecture" icon="sitemap" href="/architecture">
+    Understand Chronoverse's internal architecture
+  </Card>
+</CardGroup>

@@ -1,0 +1,29 @@
+---
+title: Delete Workflow
+api: DELETE /workflows/{workflow_id}
+---
+
+Permanently deletes a workflow and all associated data.
+
+## Path Parameters
+
+<ParamField path="workflow_id" type="string" required>
+  Unique identifier of the workflow to delete
+</ParamField>
+
+## Response
+
+Returns `204 No Content` on success.
+
+## Example Request
+
+```bash
+curl -X DELETE https://api.chronoverse.com/workflows/wf_1234567890abcdef \
+  -H "Authorization: Bearer YOUR_API_TOKEN"
+```
+
+## Notes
+
+- This operation is irreversible. Once deleted, the workflow and its data cannot be recovered
+- Consider terminating the workflow first if you want to preserve the workflow data while stopping execution
+- All associated job history and execution logs will also be deleted

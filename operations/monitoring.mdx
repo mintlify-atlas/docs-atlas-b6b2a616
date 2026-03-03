@@ -1,0 +1,218 @@
+---
+title: Monitoring
+description: Set up monitoring, health checks, and service observability for Chronoverse
+---
+
+## Overview
+
+Chronoverse provides comprehensive monitoring capabilities through Grafana LGTM (Loki, Grafana, Tempo, Mimir) stack integration and built-in health check mechanisms.
+
+## Grafana LGTM Stack
+
+The observability stack runs as a containerized service and collects telemetry from all components.
+
+### Configuration
+
+```yaml
+lgtm:
+  image: grafana/otel-lgtm:0.11.10
+  container_name: lgtm
+  environment:
+    GF_AUTH_ANONYMOUS_ENABLED: true
+    GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+  ports:
+    - "3000:3000"  # Grafana UI
+    - "4317:4317"  # OTLP gRPC endpoint
+```
+
+### Accessing Grafana
+
+In development mode, access Grafana at `http://localhost:3000`. In production, the port is not exposed externally.
+
+<Info>
+Grafana is configured with anonymous authentication enabled by default. For production deployments, configure proper authentication.
+</Info>
+
+## Health Checks
+
+### gRPC Service Health Checks
+
+All gRPC services implement health check probes using `grpc-health-probe`:
+
+```yaml
+healthcheck:
+  test: |
+    if [ "$GRPC_TLS_ENABLED" = "true" ]; then
+      /bin/grpc-health-probe -addr=localhost:50051 \
+        -connect-timeout 250ms \
+        -rpc-timeout 250ms \
+        -tls \
+        -tls-ca-cert certs/ca/ca.crt \
+        -tls-client-cert certs/users-service/users-service.crt \
+        -tls-client-key certs/users-service/users-service.key \
+        -tls-server-name=users-service \
+        -rpc-header=Audience:grpc_probe \
+        -rpc-header=Role:admin
+    else
+      /bin/grpc-health-probe -addr=localhost:50051 \
+        -connect-timeout 250ms \
+        -rpc-timeout 250ms \
+        -service=users-service \
+        -rpc-header=Audience:grpc_probe \
+        -rpc-header=Role:admin
+    fi
+  interval: 10s
+  timeout: 5s
+  retries: 5
+  start_period: 30s
+```
+
+### Service Health Check Endpoints
+
+| Service | Port | Protocol |
+|---------|------|----------|
+| users-service | 50051 | gRPC |
+| workflows-service | 50052 | gRPC |
+| jobs-service | 50053 | gRPC |
+| notifications-service | 50054 | gRPC |
+| analytics-service | 50055 | gRPC |
+
+### Database Health Checks
+
+#### PostgreSQL
+
+```yaml
+healthcheck:
+  test:
+    [
+      "CMD-SHELL",
+      "psql 'host=0.0.0.0 user=primary dbname=postgres sslmode=verify-full sslrootcert=/certs/ca/ca.crt sslcert=/certs/clients/client.crt sslkey=/certs/clients/client.key' -c 'SELECT 1;'",
+    ]
+  interval: 10s
+  timeout: 5s
+  retries: 5
+  start_period: 5s
+```
+
+#### ClickHouse
+
+```yaml
+healthcheck:
+  test:
+    [
+      "CMD-SHELL",
+      "clickhouse-client --secure --host=localhost --port=9440 --user=chronoverse-client --password=chronoverse --query 'SELECT 1'",
+    ]
+  interval: 10s
+  timeout: 5s
+  retries: 10
+  start_period: 5s
+```
+
+#### Redis
+
+```yaml
+healthcheck:
+  test:
+    [
+      "CMD-SHELL",
+      "redis-cli --tls --cert /certs/clients/client.crt --key /certs/clients/client.key --cacert /certs/ca/ca.crt -p 6379 ping | grep PONG",
+    ]
+  interval: 10s
+  timeout: 5s
+  retries: 10
+  start_period: 5s
+```
+
+## Service Dependencies
+
+Chronoverse uses Docker Compose's dependency management to ensure services start in the correct order:
+
+```yaml
+users-service:
+  depends_on:
+    postgres:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+    lgtm:
+      condition: service_started
+    init-certs:
+      condition: service_completed_successfully
+    init-database-migration:
+      condition: service_completed_successfully
+```
+
+<Warning>
+Services will not start until all dependencies are healthy. Ensure adequate `start_period` values for services with longer initialization times.
+</Warning>
+
+## Monitoring Best Practices
+
+<Steps>
+  <Step title="Configure OTLP Endpoint">
+    Ensure all services point to the LGTM stack:
+    ```bash
+    OTEL_EXPORTER_OTLP_ENDPOINT=http://lgtm:4317
+    OTEL_EXPORTER_OTLP_PROTOCOL=grpc
+    ```
+  </Step>
+
+  <Step title="Set Up Grafana Dashboards">
+    Access Grafana and import dashboards for:
+    - Service latency and throughput
+    - Error rates
+    - Resource utilization
+    - Database connection pools
+  </Step>
+
+  <Step title="Configure Alerts">
+    Set up alerts for:
+    - Service health check failures
+    - High error rates (>5%)
+    - Resource exhaustion
+    - Database connection pool saturation
+  </Step>
+
+  <Step title="Monitor Logs">
+    Use Loki to query logs across all services:
+    ```logql
+    {service_name="users-service"} |= "error"
+    ```
+  </Step>
+</Steps>
+
+## Port Reference
+
+### Exposed Ports (Development)
+
+| Service | Port | Purpose |
+|---------|------|----------|
+| Grafana | 3000 | Monitoring UI |
+| OTLP | 4317 | Telemetry ingestion |
+| PostgreSQL | 5432 | Database |
+| ClickHouse | 9440 | Analytics database |
+| Redis | 6379 | Cache |
+| Kafka | 9094 | Message broker |
+| MeiliSearch | 7700 | Search engine |
+
+<Info>
+In production mode, only port 80 (nginx) is exposed. All other services communicate over the internal Docker network.
+</Info>
+
+## HTTP Server Monitoring
+
+The HTTP server includes compression and CORS middleware with built-in logging:
+
+```go
+srv.httpServer.Handler = srv.withOtelMiddleware(
+    srv.withCORSMiddleware(
+        srv.withCompressionMiddleware(router),
+    ),
+)
+```
+
+Monitoring is enabled at:
+- `internal/server/server.go:144`
+
+All HTTP requests are traced with OpenTelemetry for latency and error tracking.
